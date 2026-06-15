@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Расчёт траектории полёта</title>
+
+  <!-- MapLibre GL JS (jsdelivr.net — доступен в РФ без VPN) -->
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.5.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.5.0/dist/maplibre-gl.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Карта занимает всю область просмотра ── */
+    #map {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
+
+    /* ── Общий стиль карточек ── */
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.14);
+      position: fixed;
+      z-index: 100;
+    }
+
+    /* ── Приветственное окно ── */
+    #bubble {
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 16px 18px;
+      max-width: 340px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      border-radius: 18px;
+    }
+    #bubble p {
+      font-size: 14px;
+      font-weight: 600;
+      color: #222;
+      line-height: 1.5;
+    }
+    #bubble-close {
+      flex-shrink: 0;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      border: none;
+      background: #f0f0f0;
+      cursor: pointer;
+      font-size: 13px;
+      color: #666;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s;
+    }
+    #bubble-close:hover { background: #e0e0e0; }
+
+    /* ── Левое меню ── */
+    #menu {
+      top: 24px;
+      left: 24px;
+      bottom: 24px;
+      width: 310px;
+      padding: 20px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #e0e0e0 transparent;
+    }
+    #menu::-webkit-scrollbar { width: 4px; }
+    #menu::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 4px; }
+
+    #menu-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      flex-shrink: 0;
+    }
+    #menu-header h2 {
+      font-size: 15px;
+      font-weight: 700;
+      color: #222;
+    }
+    #menu-close {
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      border: none;
+      background: #f2f2f2;
+      cursor: pointer;
+      font-size: 14px;
+      color: #555;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s;
+    }
+    #menu-close:hover { background: #e4e4e4; }
+
+    /* ── Строка поля ── */
+    .field-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-bottom: 9px;
+    }
+    .field-row label {
+      font-size: 11px;
+      color: #7c4dff;
+      font-weight: 600;
+      letter-spacing: .3px;
+    }
+    .field-row label::before { content: '◆ '; }
+
+    .field-row input,
+    .field-row select {
+      border: 1px solid #e2e2e2;
+      border-radius: 20px;
+      padding: 8px 14px;
+      font-size: 13px;
+      color: #333;
+      background: #fafafa;
+      outline: none;
+      width: 100%;
+      transition: border-color .2s, background .2s;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    .field-row input:focus,
+    .field-row select:focus {
+      border-color: #7c4dff;
+      background: #fff;
+    }
+
+    .select-wrap { position: relative; }
+    .select-wrap::after {
+      content: '▾';
+      position: absolute;
+      right: 13px; top: 50%;
+      transform: translateY(-50%);
+      color: #999; font-size: 12px;
+      pointer-events: none;
+    }
+
+    .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    .menu-sep { height: 1px; background: #f0f0f0; margin: 8px 0 10px; flex-shrink: 0; }
+
+    /* ── Раздел результата ── */
+    #result-section { display: none; flex-shrink: 0; }
+    #result-section .result-coords {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    #result-section .result-coords span {
+      flex: 1;
+      background: #f5f0ff;
+      border: 1px solid #d8c8ff;
+      border-radius: 20px;
+      padding: 6px 12px;
+      font-size: 13px;
+      color: #5c35cc;
+      text-align: center;
+      font-weight: 500;
+    }
+
+    /* ── Кнопки ── */
+    #btn-calc {
+      margin-top: 14px;
+      width: 100%;
+      padding: 11px;
+      border-radius: 20px;
+      border: none;
+      background: #7c4dff;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: .3px;
+      transition: background .2s, transform .1s;
+      box-shadow: 0 4px 14px rgba(124,77,255,.3);
+      flex-shrink: 0;
+    }
+    #btn-calc:hover:not(:disabled) { background: #6a3de8; }
+    #btn-calc:active:not(:disabled) { transform: scale(.98); }
+    #btn-calc:disabled { background: #c0b0f0; box-shadow: none; cursor: not-allowed; }
+
+    #btn-clear {
+      margin-top: 8px;
+      width: 100%;
+      padding: 9px;
+      border-radius: 20px;
+      border: 1px solid #e2e2e2;
+      background: #fff;
+      color: #777;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background .2s;
+      flex-shrink: 0;
+    }
+    #btn-clear:hover { background: #f8f8f8; }
+
+    /* ── Кнопка открытия меню ── */
+    #btn-menu-open {
+      display: none;
+      position: fixed;
+      top: 24px; left: 24px;
+      z-index: 110;
+      width: 42px; height: 42px;
+      border-radius: 12px;
+      border: none;
+      background: #fff;
+      box-shadow: 0 4px 16px rgba(0,0,0,.15);
+      font-size: 20px;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s;
+    }
+    #btn-menu-open:hover { background: #f5f5f5; }
+    #btn-menu-open.visible { display: flex; }
+
+    /* ── Строка состояния ── */
+    #status-bar {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 200;
+      background: #fff;
+      border-radius: 20px;
+      padding: 10px 22px;
+      font-size: 13px;
+      color: #333;
+      box-shadow: 0 4px 20px rgba(0,0,0,.14);
+      opacity: 0;
+      transition: opacity .3s;
+      white-space: nowrap;
+      pointer-events: none;
+      max-width: 90vw;
+      text-align: center;
+    }
+    #status-bar.show  { opacity: 1; }
+    #status-bar.error { color: #c62828; }
+
+    /* ── Экран загрузки ── */
+    #loading {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 300;
+      background: rgba(255,255,255,.6);
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      backdrop-filter: blur(2px);
+    }
+    #loading.show { display: flex; }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 4px solid #ede8ff;
+      border-top-color: #7c4dff;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { font-size: 14px; color: #555; font-weight: 500; }
+
+    /* ── Легенда ── */
+    #legend {
+      position: fixed;
+      bottom: 24px; right: 24px;
+      z-index: 100;
+      background: #fff;
+      border-radius: 12px;
+      padding: 10px 14px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.12);
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    #legend.show { display: flex; }
+    .leg-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #444; }
+    .leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Настройка всплывающего окна MapLibre ── */
+    .maplibregl-popup-content {
+      border-radius: 12px !important;
+      padding: 12px 14px !important;
+      box-shadow: 0 4px 20px rgba(0,0,0,.15) !important;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      color: #333;
+      min-width: 160px;
+    }
+    .maplibregl-popup-close-button {
+      font-size: 18px !important;
+      color: #888 !important;
+      top: 4px !important; right: 8px !important;
+    }
+    .popup-title {
+      font-weight: 700;
+      font-size: 14px;
+      color: #222;
+      margin-bottom: 6px;
+    }
+    .popup-row  { color: #555; margin-bottom: 2px; }
+    .popup-row span { font-weight: 600; color: #222; }
+
+    /* ── Точечные маркеры старта, финиша и разрыва ── */
+    .balloon-marker, .flag-marker, .burst-marker { cursor: pointer; }
+
+    .start-dot, .finish-dot, .burst-dot {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      box-shadow: 0 2px 8px rgba(0,0,0,.35);
+      transition: transform .15s;
+      cursor: pointer;
+    }
+    .start-dot  { background: #7c4dff; }
+    .finish-dot { background: #c62828; }
+    .burst-dot  { background: #111; border-color: #fff; }
+    .start-dot:hover, .finish-dot:hover, .burst-dot:hover { transform: scale(1.25); }
+
+    /* Оранжево-чёрная тема приложения */
+    :root {
+      --ink: #171b1f;
+      --ink-soft: #22282d;
+      --ink-muted: #2d353b;
+      --orange: #e2a43b;
+      --orange-dark: #aa7622;
+      --orange-soft: #f0c778;
+      --white-accent: #f4f6f7;
+      --white-soft: #cfd5d8;
+      --ascent-green: #3f9b58;
+      --coral: #df715f;
+      --paper: #f4f1ea;
+      --muted: #aeb8be;
+    }
+    .card {
+      background: var(--ink);
+      border: 1px solid #39434a;
+      border-radius: 8px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.34);
+      color: #fff;
+    }
+    #bubble { border-top: 3px solid var(--white-accent); }
+    #bubble p, #menu-header h2 { color: #fff; }
+    #bubble-close, #menu-close {
+      background: var(--ink-muted);
+      color: var(--white-soft);
+    }
+    #bubble-close:hover, #menu-close:hover { background: #3a3a3a; }
+    #menu {
+      scrollbar-color: var(--white-soft) transparent;
+      border-top: 3px solid var(--white-accent);
+    }
+    #menu::-webkit-scrollbar-thumb { background: var(--white-soft); }
+    .field-row label { color: var(--orange-soft); letter-spacing: 0; }
+    .field-row label::before { color: var(--white-accent); }
+    .field-row input,
+    .field-row select {
+      border-color: #3a3a3a;
+      border-radius: 6px;
+      color: #fff;
+      background: var(--ink-soft);
+      color-scheme: dark;
+    }
+    .field-row input::placeholder { color: #777; }
+    .field-row input:hover,
+    .field-row select:hover { border-color: #555; }
+    .field-row input:focus,
+    .field-row select:focus {
+      border-color: var(--white-accent);
+      background: #232323;
+      box-shadow: 0 0 0 2px rgba(244,246,247,.14);
+    }
+    .field-row input.input-error {
+      border-color: #ff4d35;
+      box-shadow: 0 0 0 2px rgba(255,77,53,.18);
+    }
+    .select-wrap::after { color: var(--white-soft); }
+    .menu-sep { background: #333; }
+    #result-section .result-coords span {
+      background: #241b13;
+      border-color: var(--orange-dark);
+      border-radius: 6px;
+      color: var(--orange-soft);
+    }
+    #btn-calc {
+      border-radius: 6px;
+      background: var(--orange);
+      color: #171b1f;
+      box-shadow: 0 5px 16px rgba(226,164,59,.22);
+    }
+    #btn-calc:hover:not(:disabled) { background: #efb654; }
+    #btn-calc:disabled { background: #665536; color: #adb3b6; }
+    #btn-clear {
+      border-radius: 6px;
+      border-color: #444;
+      background: var(--ink-soft);
+      color: #ddd;
+    }
+    #btn-clear:hover { background: #293137; border-color: var(--white-soft); }
+    #btn-menu-open {
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: var(--ink);
+      color: var(--white-soft);
+    }
+    #btn-menu-open:hover { background: var(--ink-soft); }
+    #status-bar {
+      border-radius: 6px;
+      border: 1px solid #3a3a3a;
+      background: var(--ink);
+      color: #fff;
+    }
+    #status-bar.error { color: #ff7b69; border-color: #8f3024; }
+    #loading { background: rgba(10,10,10,.72); }
+    .spinner { border-color: #344249; border-top-color: var(--white-accent); }
+    #loading p { color: #fff; }
+    #legend {
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: var(--ink);
+    }
+    .leg-item { color: #eee; }
+    .maplibregl-popup-content {
+      border: 1px solid #444;
+      border-radius: 6px !important;
+      background: var(--ink) !important;
+      color: #fff;
+    }
+    .maplibregl-popup-tip { border-top-color: var(--ink) !important; }
+    .maplibregl-popup-close-button { color: var(--white-soft) !important; }
+    .popup-title, .popup-row span { color: #fff; }
+    .popup-row { color: #bbb; }
+    .start-dot { background: var(--ascent-green); }
+    .finish-dot { background: var(--coral); border-color: #fff; }
+    .burst-dot { background: #fff; border-color: #111; }
+    @media (max-width: 700px) {
+      #menu {
+        inset: 10px;
+        width: auto;
+        padding: 18px 16px;
+      }
+      #bubble { display: none; }
+      #btn-menu-open { top: 12px; left: 12px; }
+      #legend { right: 10px; bottom: 10px; }
+      #status-bar {
+        bottom: 12px;
+        white-space: normal;
+        width: calc(100% - 20px);
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+<form id="csrf-form" style="display:none">{% csrf_token %}</form>
+
+<!-- Экран загрузки -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p id="loading-msg">Загружаю данные ветра из ECMWF…</p>
+</div>
+
+<!-- Приветственное окно -->
+<div class="card" id="bubble">
+  <p>Здравствуйте, здесь можно<br>рассчитать траекторию полёта!</p>
+  <button id="bubble-close" onclick="closeBubble()">✕</button>
+</div>
+
+<!-- Левое меню -->
+<div class="card" id="menu">
+  <div id="menu-header">
+    <h2>Меню</h2>
+    <button id="menu-close" onclick="toggleMenu()">✕</button>
+  </div>
+
+  <div class="field-row">
+    <label>Широта</label>
+    <input id="inp-lat" type="text" inputmode="decimal" placeholder="55.7558 или 55,7558" />
+  </div>
+  <div class="field-row">
+    <label>Долгота</label>
+    <input id="inp-lon" type="text" inputmode="decimal" placeholder="37.6176 или 37,6176" />
+  </div>
+  <div class="field-row">
+    <label>Высота запуска (м)</label>
+    <input id="inp-alt" type="text" inputmode="decimal" value="100" />
+  </div>
+
+  <div class="row-2">
+    <div class="field-row">
+      <label>Дата запуска</label>
+      <input id="inp-date" type="date" />
+    </div>
+    <div class="field-row">
+      <label>Время UTC</label>
+      <input id="inp-time" type="time" value="06:00" />
+    </div>
+  </div>
+
+  <div class="menu-sep"></div>
+
+  <div class="field-row">
+    <label>Скорость подъёма (м/с)</label>
+    <input id="inp-ascent" type="text" inputmode="decimal" value="3" />
+  </div>
+  <div class="row-2">
+    <div class="field-row">
+      <label>Высота дрейфа (м)</label>
+      <input id="inp-float-alt" type="text" inputmode="decimal" value="5000" />
+    </div>
+    <div class="field-row">
+      <label>Высота разрыва (м)</label>
+      <input id="inp-burst" type="text" inputmode="decimal" value="30000" />
+    </div>
+  </div>
+  <div class="field-row">
+    <label>Скорость спуска (м/с)</label>
+    <input id="inp-descent" type="text" inputmode="decimal" value="5" />
+  </div>
+  <div class="field-row">
+    <label>Профиль полёта</label>
+    <div class="select-wrap">
+      <select id="inp-profile" onchange="toggleFloatDuration()">
+        <option value="standard">Стандартный</option>
+        <option value="float_profile">Дрейф</option>
+      </select>
+    </div>
+  </div>
+  <div class="field-row" id="row-float-dur" style="display:none">
+    <label>Макс. время дрейфа (ч)</label>
+    <input id="inp-float-dur" type="text" inputmode="decimal" value="48" />
+  </div>
+
+  <!-- Результат -->
+  <div id="result-section">
+    <div class="menu-sep"></div>
+    <div class="field-row" style="margin-bottom:0">
+      <label>Координаты финиша</label>
+      <div class="result-coords">
+        <span id="res-lat">—</span>
+        <span id="res-lon">—</span>
+      </div>
+    </div>
+  </div>
+
+  <button id="btn-calc" onclick="runPrediction()">Рассчитать траекторию</button>
+  <button id="btn-clear" onclick="clearTrajectory()">Очистить карту</button>
+</div>
+
+<!-- Кнопка открытия меню -->
+<button id="btn-menu-open" onclick="toggleMenu()">☰</button>
+
+<!-- Строка состояния -->
+<div id="status-bar"></div>
+
+<!-- Легенда фаз -->
+<div id="legend">
+  <div class="leg-item"><div class="leg-dot" style="background:#3f9b58"></div>Подъём</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#e2a43b"></div>Дрейф</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#df715f"></div>Спуск</div>
+</div>
+
+<script>
+// ─────────────── Инициализация карты ──────────────
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      'osm-base': {
+        type: 'raster',
+        tiles: [
+          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        ],
+        tileSize: 256,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      },
+    },
+    layers: [{ id: 'osm-base', type: 'raster', source: 'osm-base' }],
+  },
+  center: [37.62, 55.75],
+  zoom: 10,
+  attributionControl: { compact: true },
+});
+
+// Если OpenFreeMap не загрузится, используем растровую карту OSM
+map.on('error', () => {
+  return;
+  if (!map.getSource('osm-raster')) {
+    map.setStyle({
+      version: 8,
+      sources: {
+        'osm-raster': {
+          type: 'raster',
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '© OpenStreetMap contributors',
+        },
+      },
+      layers: [{ id: 'osm', type: 'raster', source: 'osm-raster' }],
+    });
+  }
+});
+
+let mapReady = false;
+map.on('load', () => {
+  mapReady = true;
+
+  // Источники и слои траектории
+  map.addSource('traj-line-src', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  });
+  map.addLayer({
+    id: 'traj-line',
+    type: 'line',
+    source: 'traj-line-src',
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': 3.5,
+      'line-opacity': .88,
+    },
+  });
+
+  map.addSource('traj-dots-src', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  });
+  map.addLayer({
+    id: 'traj-dots',
+    type: 'circle',
+    source: 'traj-dots-src',
+    paint: {
+      'circle-radius': 5,
+      'circle-color': ['get', 'color'],
+      'circle-stroke-color': '#fff',
+      'circle-stroke-width': 2,
+    },
+  });
+
+  // Всплывающее окно при нажатии на точку маршрута
+  map.on('click', 'traj-dots', e => {
+    const p = e.features[0].properties;
+    new maplibregl.Popup({ offset: 8 })
+      .setLngLat(e.lngLat)
+      .setHTML(
+        `<div class="popup-title">Промежуточная точка</div>
+         <div class="popup-row">Высота: <span>${Math.round(p.alt)} м</span></div>
+         <div class="popup-row">Время: <span>${(p.time||'').replace('T',' ').replace('Z','')} UTC</span></div>`
+      )
+      .addTo(map);
+  });
+  map.on('mouseenter', 'traj-dots', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'traj-dots', () => { map.getCanvas().style.cursor = ''; });
+});
+
+// ─────────────── Состояние ──────────────────────
+let startMarker = null;
+let landMarker  = null;
+let burstMarker = null;
+
+const todayUtc = new Date();
+const earliestHistoryDate = new Date(todayUtc);
+earliestHistoryDate.setUTCDate(
+  earliestHistoryDate.getUTCDate() - 8
+);
+const latestForecastDate = new Date(todayUtc);
+latestForecastDate.setUTCDate(
+  latestForecastDate.getUTCDate() + 15
+);
+const dateInput = document.getElementById('inp-date');
+dateInput.value = todayUtc.toISOString().slice(0, 10);
+dateInput.min = earliestHistoryDate.toISOString().slice(0, 10);
+dateInput.max = latestForecastDate.toISOString().slice(0, 10);
+
+function parsePredictNumber(value, fallback) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(',', '.');
+  if (!normalized || !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(normalized)) return fallback;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function readNumber(id, fallback, min = -Infinity, max = Infinity) {
+  const input = document.getElementById(id);
+  const value = parsePredictNumber(input.value, NaN);
+  const valid = Number.isFinite(value) && value >= min && value <= max;
+  input.classList.toggle('input-error', !valid);
+  return valid ? value : fallback;
+}
+
+// ─────────────── Работа с маркерами ─────────────
+function makeBalloonEl() {
+  const el = document.createElement('div');
+  el.className = 'balloon-marker';
+  el.innerHTML = '<div class="start-dot"></div>';
+  return el;
+}
+
+function makeFlagEl() {
+  const el = document.createElement('div');
+  el.className = 'flag-marker';
+  el.innerHTML = '<div class="finish-dot"></div>';
+  return el;
+}
+
+function makeBurstEl() {
+  const el = document.createElement('div');
+  el.className = 'burst-marker';
+  el.innerHTML = '<div class="burst-dot"></div>';
+  return el;
+}
+
+// ─────────────── Нажатие на карту задаёт старт ──
+map.on('click', e => {
+  // Игнорируем нажатия по пользовательскому маркеру
+  if (e.originalEvent.target.closest('.balloon-marker, .flag-marker, .burst-marker')) return;
+
+  // Нажатия по точкам траектории обрабатываются отдельно
+  const features = map.queryRenderedFeatures(e.point, { layers: ['traj-dots'] });
+  if (features.length > 0) return;
+
+  const lat = +e.lngLat.lat.toFixed(4);
+  const lon = +e.lngLat.lng.toFixed(4);
+  document.getElementById('inp-lat').value = lat;
+  document.getElementById('inp-lon').value = lon;
+  placeStartMarker(lat, lon);
+});
+
+function placeStartMarker(lat, lon) {
+  if (startMarker) startMarker.remove();
+
+  const el = makeBalloonEl();
+
+  const popup = new maplibregl.Popup({ offset: [0, -14], closeButton: true })
+    .setHTML(
+      `<div class="popup-title">Точка старта</div>
+       <div class="popup-row">Широта:  <span>${lat.toFixed(4)}</span></div>
+       <div class="popup-row">Долгота: <span>${lon.toFixed(4)}</span></div>`
+    );
+
+  startMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .setPopup(popup)
+    .addTo(map);
+}
+
+// ─────────────── Приветственное окно ────────────
+function applyPredictQueryParams() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.size) return false;
+
+  const lat = parsePredictNumber(params.get('launch_latitude'), NaN);
+  const lon = parsePredictNumber(params.get('launch_longitude'), NaN);
+  const altitude = parsePredictNumber(params.get('launch_altitude'), 100);
+  const ascentRate = parsePredictNumber(params.get('ascent_rate'), 3);
+  const floatAltitude = parsePredictNumber(params.get('float_altitude'), 5000);
+  const burstAltitude = parsePredictNumber(params.get('burst_altitude'), 30000);
+  const descentRate = parsePredictNumber(params.get('descent_rate'), 5);
+  const profile = params.get('profile') || 'standard';
+  const launchDateTime = params.get('launch_datetime');
+
+  if (Number.isFinite(lat)) document.getElementById('inp-lat').value = lat.toFixed(4);
+  if (Number.isFinite(lon)) document.getElementById('inp-lon').value = lon.toFixed(4);
+  document.getElementById('inp-alt').value = altitude;
+  document.getElementById('inp-ascent').value = ascentRate;
+  document.getElementById('inp-float-alt').value = floatAltitude;
+  document.getElementById('inp-burst').value = burstAltitude;
+  document.getElementById('inp-descent').value = descentRate;
+  document.getElementById('inp-profile').value = profile === 'float_profile' ? 'float_profile' : 'standard';
+
+  if (launchDateTime) {
+    const dt = new Date(launchDateTime);
+    if (!Number.isNaN(dt.getTime())) {
+      document.getElementById('inp-date').value = dt.toISOString().slice(0, 10);
+      document.getElementById('inp-time').value = dt.toISOString().slice(11, 16);
+    }
+  }
+
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    placeStartMarker(lat, lon);
+    map.jumpTo({ center: [lon, lat], zoom: 8 });
+    return true;
+  }
+
+  return false;
+}
+
+function closeBubble() { document.getElementById('bubble').style.display = 'none'; }
+
+// ─────────────── Переключатель времени дрейфа ───
+function toggleFloatDuration() {
+  const isFloat = document.getElementById('inp-profile').value === 'float_profile';
+  document.getElementById('row-float-dur').style.display = isFloat ? 'flex' : 'none';
+}
+
+// ─────────────── Переключатель меню ─────────────
+let menuOpen = true;
+function toggleMenu() {
+  menuOpen = !menuOpen;
+  document.getElementById('menu').style.display = menuOpen ? 'flex' : 'none';
+  document.getElementById('btn-menu-open').classList.toggle('visible', !menuOpen);
+}
+
+// ─────────────── Цвета фаз ──────────────────────
+function phaseColor(phase) {
+  if (phase === 'ascent')  return '#3f9b58';
+  if (phase === 'float')   return '#e2a43b';
+  if (phase === 'descent') return '#df715f';
+  return '#87959d';
+}
+
+// ─────────────── Запуск расчёта ─────────────────
+async function runPrediction() {
+  const lat = readNumber('inp-lat', NaN, -90, 90);
+  const lon = readNumber('inp-lon', NaN, -180, 180);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    showStatus('Кликните на карту или введите координаты старта', true);
+    return;
+  }
+
+  clearTrajectory(false);
+  placeStartMarker(lat, lon);
+
+  document.getElementById('loading').classList.add('show');
+  document.getElementById('btn-calc').disabled = true;
+
+  try {
+    const body = {
+      latitude:       lat,
+      longitude:      lon,
+      altitude:       readNumber('inp-alt', 100, 0, 8000),
+      launch_date:    document.getElementById('inp-date').value,
+      launch_time:    document.getElementById('inp-time').value,
+      ascent_rate:      readNumber('inp-ascent', 3, 0.1, 20),
+      float_altitude:   readNumber('inp-float-alt', 5000, 100, 45000),
+      burst_altitude:   readNumber('inp-burst', 30000, 1000, 50000),
+      descent_rate:     readNumber('inp-descent', 5, 0.1, 30),
+      profile:          document.getElementById('inp-profile').value,
+      max_float_hours:  readNumber('inp-float-dur', 48, 1, 240),
+    };
+    const targetAltitude = body.profile === 'float_profile'
+      ? body.float_altitude
+      : body.burst_altitude;
+    const ascentHours = Math.max(0, targetAltitude - body.altitude) / body.ascent_rate / 3600;
+    const driftHours = body.profile === 'float_profile' ? body.max_float_hours : 0;
+    const estimatedHours = ascentHours + driftHours
+      + targetAltitude / body.descent_rate / 3600 / 2.5;
+    const forecastSlices = Math.ceil(estimatedHours / 3) + 2;
+    document.getElementById('loading-msg').textContent = estimatedHours > 12
+      ? `Медленный полёт: около ${Math.round(estimatedHours)} ч · подготавливаю до ${forecastSlices} прогнозов GFS…`
+      : 'Загружаю данные ветра GFS…';
+
+    const res  = await fetch('/api/predict/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
+      body: JSON.stringify(body),
+    });
+    const responseText = await res.text();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch {
+      const defaultMessage = res.status === 403
+        ? 'Сессия устарела. Обновите страницу и повторите расчет.'
+        : `Сервер вернул ошибку ${res.status}`;
+      throw new Error(defaultMessage);
+    }
+    if (!res.ok || data.error) throw new Error(data.error || `Ошибка сервера ${res.status}`);
+
+    drawTrajectory(data.trajectory, lat, lon);
+
+    const inf = data.info || {};
+    showStatus(`Траектория готова · ${inf.source || 'ECMWF'} · ${data.trajectory.length} точек`);
+
+  } catch (err) {
+    showStatus('Ошибка: ' + err.message, true);
+  } finally {
+    document.getElementById('loading').classList.remove('show');
+    document.getElementById('btn-calc').disabled = false;
+  }
+}
+
+// ─────────────── Отрисовка траектории ───────────
+function drawTrajectory(points, startLat, startLon) {
+  if (!points || points.length === 0) return;
+
+  // ── Сегменты ──
+  const lineFeatures = [];
+  let i = 0;
+  while (i < points.length - 1) {
+    const phase = points[i].phase;
+    const coords = [[points[i].lon, points[i].lat]];
+    let j = i + 1;
+    while (j < points.length && points[j].phase === phase) {
+      coords.push([points[j].lon, points[j].lat]);
+      j++;
+    }
+    if (j < points.length) coords.push([points[j].lon, points[j].lat]);
+    lineFeatures.push({
+      type: 'Feature',
+      properties: { color: phaseColor(phase), phase },
+      geometry: { type: 'LineString', coordinates: coords },
+    });
+    i = j;
+  }
+
+  // ── Точки маршрута через каждые 30 минут, то есть 30 шагов ──
+  const dotFeatures = [];
+  const step = 30;
+  for (let k = step; k < points.length - step; k += step) {
+    const p = points[k];
+    dotFeatures.push({
+      type: 'Feature',
+      properties: { color: phaseColor(p.phase), alt: p.alt, time: p.time },
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+    });
+  }
+
+  if (mapReady) {
+    map.getSource('traj-line-src').setData({ type: 'FeatureCollection', features: lineFeatures });
+    map.getSource('traj-dots-src').setData({ type: 'FeatureCollection', features: dotFeatures });
+  }
+
+  // ── Маркер разрыва в последней точке подъёма ──
+  const burstPt = [...points].reverse().find(p => p.phase === 'ascent');
+  if (burstMarker) burstMarker.remove();
+  if (burstPt) {
+    const burstEl = makeBurstEl();
+    const burstPopup = new maplibregl.Popup({ offset: [0, -14], closeButton: true })
+      .setHTML(
+        `<div class="popup-title">Точка взрыва</div>
+         <div class="popup-row">Высота: <span>${Math.round(burstPt.alt)} м</span></div>
+         <div class="popup-row">Широта: <span>${burstPt.lat.toFixed(4)}</span></div>
+         <div class="popup-row">Долгота: <span>${burstPt.lon.toFixed(4)}</span></div>
+         <div class="popup-row">Время: <span>${(burstPt.time||'').replace('T',' ').replace('Z','')} UTC</span></div>`
+      );
+    burstMarker = new maplibregl.Marker({ element: burstEl, anchor: 'center' })
+      .setLngLat([burstPt.lon, burstPt.lat])
+      .setPopup(burstPopup)
+      .addTo(map);
+  }
+
+  // ── Маркер приземления ──
+  const last = points[points.length - 1];
+  if (landMarker) landMarker.remove();
+  const flagEl = makeFlagEl();
+  const landPopup = new maplibregl.Popup({ offset: [0, -14], closeButton: true })
+    .setHTML(
+      `<div class="popup-title">Точка финиша</div>
+       <div class="popup-row">Широта:  <span>${last.lat.toFixed(4)}</span></div>
+       <div class="popup-row">Долгота: <span>${last.lon.toFixed(4)}</span></div>
+       <div class="popup-row">Время:   <span>${(last.time||'').replace('T',' ').replace('Z','')} UTC</span></div>`
+    );
+  landMarker = new maplibregl.Marker({ element: flagEl, anchor: 'center' })
+    .setLngLat([last.lon, last.lat])
+    .setPopup(landPopup)
+    .addTo(map);
+
+  // ── Показываем координаты финиша в меню ──
+  document.getElementById('res-lat').textContent = last.lat.toFixed(4);
+  document.getElementById('res-lon').textContent = last.lon.toFixed(4);
+  document.getElementById('result-section').style.display = 'block';
+
+  // ── Подгоняем границы карты ──
+  const lngs = points.map(p => p.lon);
+  const lats = points.map(p => p.lat);
+  map.fitBounds(
+    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
+    { padding: 60, duration: 1000 }
+  );
+
+  document.getElementById('legend').classList.add('show');
+}
+
+// ─────────────── Очистка ─────────────────────────
+function clearTrajectory(resetResult = true) {
+  if (mapReady) {
+    map.getSource('traj-line-src')?.setData({ type: 'FeatureCollection', features: [] });
+    map.getSource('traj-dots-src')?.setData({ type: 'FeatureCollection', features: [] });
+  }
+  if (landMarker)  { landMarker.remove();  landMarker  = null; }
+  if (burstMarker) { burstMarker.remove(); burstMarker = null; }
+  if (resetResult) {
+    document.getElementById('res-lat').textContent = '—';
+    document.getElementById('res-lon').textContent = '—';
+    document.getElementById('result-section').style.display = 'none';
+  }
+  document.getElementById('legend').classList.remove('show');
+}
+
+// ─────────────── Уведомление о состоянии ─────────
+let _st;
+function showStatus(msg, isError = false) {
+  const bar = document.getElementById('status-bar');
+  bar.textContent = msg;
+  bar.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(_st);
+  _st = setTimeout(() => bar.classList.remove('show'), 6000);
+}
+
+// ─────────────── CSRF ────────────────────────────
+function getCsrfToken() {
+  return document.querySelector(
+    '#csrf-form input[name="csrfmiddlewaretoken"]'
+  )?.value || '';
+}
+
+const hasPredictParams = applyPredictQueryParams();
+if (hasPredictParams) {
+  window.addEventListener('load', () => {
+    runPrediction();
+  }, { once: true });
+}
+</script>
+</body>
+</html>
