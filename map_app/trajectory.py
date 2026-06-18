@@ -2,9 +2,9 @@
 Balloon trajectory prediction using NOAA GFS 0.5-degree GRIB2 data.
 
 Data source  : NOAA NOMADS filter service
-File         : gfs.t{HH}z.pgrb2full.0p50.f{FFF}
-Resolution   : 0.5 by 0.5 degrees
-Levels       : 47 isobaric pressure levels, 1-1000 hPa
+File         : gfs.t{HH}z.pgrb2*.{GRID}.f{FFF}
+Resolution   : 1.0 or 0.5 degrees
+Levels       : isobaric pressure levels, 1-1000 hPa
 Interpolation: linear latitude, longitude, altitude and time
 Integration  : fourth-order Runge-Kutta, dt = 60 seconds
 """
@@ -25,7 +25,18 @@ from datetime import datetime, timedelta
 from .elevation import get_elevation
 
 EARTH_RADIUS  = 6_371_009.0
-NOMADS_FILTER = 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p50.pl'
+NOMADS_FILTERS = {
+    'approx': {
+        'label': '1.0°',
+        'filter': 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl',
+        'file_suffix': 'pgrb2.1p00',
+    },
+    'full': {
+        'label': '0.5°',
+        'filter': 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p50.pl',
+        'file_suffix': 'pgrb2full.0p50',
+    },
+}
 GFS_CACHE_VERSION = 1
 GFS_DOWNLOAD_WORKERS = 6
 NOMADS_HISTORY_DAYS = 8
@@ -164,9 +175,10 @@ def _fxx_list(run_dt: datetime, launch_dt: datetime,
 
 def _fetch_grib2(run_dt: datetime, fxx: int,
                  lat_min: float, lat_max: float,
-                 lon_min: float, lon_max: float) -> dict:
+                 lon_min: float, lon_max: float,
+                 gfs_mode: str = 'approx') -> dict:
     """
-    Download one pgrb2full.0p50 forecast slice from NOMADS and parse it.
+    Download one GFS forecast slice from NOMADS and parse it.
 
     Returns:
         {
@@ -176,11 +188,13 @@ def _fetch_grib2(run_dt: datetime, fxx: int,
           'v':    {hPa: ndarray(nj,ni)},
         }
     """
+    grid = NOMADS_FILTERS[gfs_mode]
     rh  = f'{run_dt.hour:02d}'
     dat = run_dt.strftime('%Y%m%d')
-    url = (NOMADS_FILTER
-           + f'?file=gfs.t{rh}z.pgrb2full.0p50.f{fxx:03d}'
-           + '&all_lev=on&var_UGRD=on&var_VGRD=on&var_HGT=on'
+    url = (grid['filter']
+           + f'?file=gfs.t{rh}z.{grid["file_suffix"]}.f{fxx:03d}'
+           + '&all_lev=on'
+           + '&var_UGRD=on&var_VGRD=on&var_HGT=on'
            + f'&subregion=&leftlon={lon_min:.2f}&rightlon={lon_max:.2f}'
            + f'&toplat={lat_max:.2f}&bottomlat={lat_min:.2f}'
            + f'&dir=%2Fgfs.{dat}%2F{rh}%2Fatmos')
@@ -449,7 +463,8 @@ class GFSDataset:
 def build_gfs_dataset(lat: float, lon: float,
                        launch_dt: datetime,
                        flight_hours: float = 10.0,
-                       margin: float = 5.0) -> GFSDataset:
+                       margin: float = 5.0,
+                       gfs_mode: str = 'approx') -> GFSDataset:
     """Download all required GFS forecast hours for the trajectory."""
     run_dt  = _gfs_run_dt(launch_dt)
     fxxs    = _fxx_list(run_dt, launch_dt, flight_hours)
@@ -466,7 +481,7 @@ def build_gfs_dataset(lat: float, lon: float,
         futures = {
             executor.submit(
                 _fetch_grib2, run_dt, fxx,
-                lat_min, lat_max, lon_min, lon_max,
+                lat_min, lat_max, lon_min, lon_max, gfs_mode,
             ): fxx
             for fxx in fxxs
         }
@@ -530,11 +545,12 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
                           burst_altitude: float,
                           descent_rate: float,
                           profile: str = 'standard',
-                          max_float_hours: float = 48.0) -> tuple:
+                          max_float_seconds: float = 172_800.0,
+                          gfs_mode: str = 'approx') -> tuple:
     """
-    Balloon trajectory using NOAA GFS 0.5° pgrb2full GRIB2 data.
+    Balloon trajectory using NOAA GFS GRIB2 wind data.
 
-    The model uses 47 isobaric pressure levels, four-dimensional linear
+    The model uses isobaric pressure levels, four-dimensional linear
     wind interpolation, density-adjusted descent speed and RK4 integration
     with a 60-second timestep.
     """
@@ -542,10 +558,15 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
     # скоростью. Берём запас, чтобы прогноз всегда охватывал нужное число часов.
     ascent_h  = burst_altitude / ascent_rate / 3600
     descent_h = burst_altitude / descent_rate / 3600 / 2.5   # avg density factor
-    flight_h  = (max_float_hours + 10 if profile == 'float_profile'
+    float_h   = max_float_seconds / 3600
+    flight_h  = (float_h + 10 if profile == 'float_profile'
                  else ascent_h + descent_h + 2)
 
-    ds = build_gfs_dataset(lat, lon, launch_dt_utc, flight_hours=flight_h)
+    ds = build_gfs_dataset(
+        lat, lon, launch_dt_utc,
+        flight_hours=flight_h,
+        gfs_mode=gfs_mode,
+    )
 
     DT = 60;  MAX_STEPS = 14_400
     cur_lat, cur_lon, cur_alt = lat, lon, alt
@@ -613,7 +634,7 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
                 cur_lat, cur_lon, cur_alt, cur_time = end_state
 
         elif phase == 'float':
-            remaining = max_float_hours * 3600 - float_elapsed
+            remaining = max_float_seconds - float_elapsed
             step_dt = min(DT, remaining)
             cur_lat, cur_lon, cur_alt = _rk4_step(
                 ds, cur_lat, cur_lon, cur_alt, cur_time, step_dt,
@@ -652,10 +673,17 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
 
             cur_lat, cur_lon, cur_alt, cur_time = end_state
 
+    first_grid = next(iter(ds.grids.values()), {})
+    levels_count = len(first_grid.get('u', {}))
+    grid_label = NOMADS_FILTERS[gfs_mode]['label']
+    file_suffix = NOMADS_FILTERS[gfs_mode]['file_suffix']
     info = {
-        'source':    (f'NOAA GFS 0.5° pgrb2full — RK4, 47 levels, variable descent '
+        'source':    (f'NOAA GFS {grid_label} {file_suffix} — RK4, variable descent '
                       f'(run {ds.run_dt.strftime("%Y-%m-%d %HZ")})'),
         'points':    len(trajectory),
         'api_calls': len(ds.grids),
+        'gfs_mode':  gfs_mode,
+        'grid':      grid_label,
+        'levels':    levels_count,
     }
     return trajectory, info

@@ -92,7 +92,9 @@ def predict_trajectory(request):
         "float_altitude": 5000,        // m (float target for float profile)
         "burst_altitude": 30000,       // m
         "descent_rate":   5.0,         // m/s
-        "profile":        "standard"   // or "float_profile"
+        "profile":        "standard",  // or "float_profile"
+        "max_float_seconds": 172800,   // seconds
+        "gfs_mode":       "approx"     // "approx" or "full"
     }
     """
     try:
@@ -106,9 +108,21 @@ def predict_trajectory(request):
         burst_alt     = _parse_float(data.get('burst_altitude', 30000.0))
         descent_rate     = _parse_float(data.get('descent_rate',     5.0))
         profile          = str(data.get('profile', 'standard'))
-        max_float_hours  = _parse_float(data.get('max_float_hours', 48.0))
+        if 'max_float_seconds' in data:
+            max_float_seconds = _parse_float(data.get('max_float_seconds'))
+        else:
+            max_float_seconds = _parse_float(
+                data.get('max_float_hours', 48.0)
+            ) * 3600
+        gfs_mode         = str(data.get('gfs_mode', 'approx'))
+        if gfs_mode == 'fast':
+            gfs_mode = 'approx'
         if ascent_rate <= 0 or descent_rate <= 0:
             raise ValueError('Ascent and descent rates must be greater than zero')
+        if max_float_seconds <= 0:
+            raise ValueError('Float duration must be greater than zero')
+        if gfs_mode not in ('approx', 'full'):
+            raise ValueError('gfs_mode must be approx or full')
 
         date_str = data.get('launch_date', datetime.utcnow().strftime('%Y-%m-%d'))
         time_str = data.get('launch_time', '00:00')
@@ -117,7 +131,7 @@ def predict_trajectory(request):
         trajectory, info = calculate_trajectory(
             lat, lon, alt, launch_dt,
             ascent_rate, float_alt, burst_alt,
-            descent_rate, profile, max_float_hours,
+            descent_rate, profile, max_float_seconds, gfs_mode,
         )
 
         return JsonResponse({'trajectory': trajectory, 'info': info})
