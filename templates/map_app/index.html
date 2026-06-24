@@ -88,9 +88,9 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 56px;
-      margin: 0 0 14px;
-      padding: 10px 12px;
+      min-height: 78px;
+      margin: 0 0 16px;
+      padding: 12px 14px;
       border: 1px solid #333;
       border-radius: 6px;
       background: #050505;
@@ -99,7 +99,7 @@
     .menu-brand img {
       display: block;
       width: 100%;
-      max-height: 42px;
+      max-height: 64px;
       object-fit: contain;
     }
 
@@ -174,6 +174,21 @@
     }
 
     .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .row-2 .field-row.full-width { grid-column: 1 / -1; }
+
+    .duration-control {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 96px;
+      gap: 8px;
+      align-items: center;
+    }
+    .duration-conversion {
+      min-height: 18px;
+      margin-top: 4px;
+      font-size: 11px;
+      line-height: 1.3;
+      color: #777;
+    }
 
     .menu-sep { height: 1px; background: #f0f0f0; margin: 8px 0 10px; flex-shrink: 0; }
 
@@ -372,14 +387,14 @@
 
     /* Оранжево-чёрная тема приложения */
     :root {
-      --ink: #171b1f;
-      --ink-soft: #22282d;
-      --ink-muted: #2d353b;
-      --orange: #e2a43b;
-      --orange-dark: #aa7622;
-      --orange-soft: #f0c778;
-      --white-accent: #f4f6f7;
-      --white-soft: #cfd5d8;
+      --ink: #080808;
+      --ink-soft: #151515;
+      --ink-muted: #242424;
+      --orange: #ff7629;
+      --orange-dark: #b94c12;
+      --orange-soft: #ff9b61;
+      --white-accent: #080808;
+      --white-soft: #7d7d7d;
       --ascent-green: #3f9b58;
       --coral: #df715f;
       --paper: #f4f1ea;
@@ -387,12 +402,12 @@
     }
     .card {
       background: var(--ink);
-      border: 1px solid #39434a;
+      border: 1px solid #2f2f2f;
       border-radius: 8px;
       box-shadow: 0 8px 28px rgba(0,0,0,.34);
       color: #fff;
     }
-    #bubble { border-top: 3px solid var(--white-accent); }
+    #bubble { border-top: 3px solid #000; }
     #bubble p, #menu-header h2 { color: #fff; }
     #bubble-close, #menu-close {
       background: var(--ink-muted);
@@ -401,14 +416,14 @@
     #bubble-close:hover, #menu-close:hover { background: #3a3a3a; }
     #menu {
       scrollbar-color: var(--white-soft) transparent;
-      border-top: 3px solid var(--white-accent);
+      border-top: 3px solid #000;
     }
     #menu::-webkit-scrollbar-thumb { background: var(--white-soft); }
     .field-row label { color: var(--orange-soft); letter-spacing: 0; }
-    .field-row label::before { color: var(--white-accent); }
+    .field-row label::before { color: #000; }
     .field-row input,
     .field-row select {
-      border-color: #3a3a3a;
+      border-color: #3a332e;
       border-radius: 6px;
       color: #fff;
       background: var(--ink-soft);
@@ -419,15 +434,16 @@
     .field-row select:hover { border-color: #555; }
     .field-row input:focus,
     .field-row select:focus {
-      border-color: var(--white-accent);
-      background: #232323;
-      box-shadow: 0 0 0 2px rgba(244,246,247,.14);
+      border-color: var(--orange);
+      background: #1a1a1a;
+      box-shadow: 0 0 0 2px rgba(255,118,41,.18);
     }
     .field-row input.input-error {
       border-color: #ff4d35;
       box-shadow: 0 0 0 2px rgba(255,77,53,.18);
     }
     .select-wrap::after { color: var(--white-soft); }
+    .duration-conversion { color: var(--orange-soft); }
     .menu-sep { background: #333; }
     #result-section .result-coords span {
       background: #241b13;
@@ -438,10 +454,10 @@
     #btn-calc {
       border-radius: 6px;
       background: var(--orange);
-      color: #171b1f;
-      box-shadow: 0 5px 16px rgba(226,164,59,.22);
+      color: #080808;
+      box-shadow: 0 5px 16px rgba(255,118,41,.24);
     }
-    #btn-calc:hover:not(:disabled) { background: #efb654; }
+    #btn-calc:hover:not(:disabled) { background: #ff8b4a; }
     #btn-calc:disabled { background: #665536; color: #adb3b6; }
     #btn-clear,
     #btn-export {
@@ -619,8 +635,17 @@
     </div>
   </div>
   <div class="field-row" id="row-float-dur" style="display:none">
-    <label>Макс. время дрейфа (чч.мм.сс)</label>
-    <input id="inp-float-dur" type="text" inputmode="numeric" value="48.00.00" placeholder="00.00.00" />
+    <label>Макс. время дрейфа</label>
+    <div class="duration-control">
+      <input id="inp-float-dur" type="text" inputmode="decimal" value="172800" placeholder="172800" />
+      <div class="select-wrap">
+        <select id="inp-float-dur-unit">
+          <option value="seconds">сек</option>
+          <option value="hours">ч</option>
+        </select>
+      </div>
+    </div>
+    <div id="float-dur-conversion" class="duration-conversion">≈ 48 ч</div>
   </div>
 
   <!-- Результат -->
@@ -649,7 +674,7 @@
 <!-- Легенда фаз -->
 <div id="legend">
   <div class="leg-item"><div class="leg-dot" style="background:#3f9b58"></div>Подъём</div>
-  <div class="leg-item"><div class="leg-dot" style="background:#e2a43b"></div>Дрейф</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ff7629"></div>Дрейф</div>
   <div class="leg-item"><div class="leg-dot" style="background:#df715f"></div>Спуск</div>
 </div>
 
@@ -789,28 +814,50 @@ function readNumber(id, fallback, min = -Infinity, max = Infinity) {
   return valid ? value : fallback;
 }
 
-function formatDurationSeconds(totalSeconds) {
-  const seconds = Math.max(0, Math.round(totalSeconds));
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const restSeconds = seconds % 60;
-  return [hours, minutes, restSeconds]
-    .map(value => String(value).padStart(2, '0'))
-    .join('.');
+function setFloatDurationSeconds(totalSeconds) {
+  const input = document.getElementById('inp-float-dur');
+  const unit = document.getElementById('inp-float-dur-unit');
+  if (!input || !unit) return;
+  unit.value = 'seconds';
+  input.value = String(Math.max(0, Math.round(totalSeconds)));
+  syncFloatDurationConversion();
 }
 
 function readDurationSeconds(id, fallbackSeconds) {
   const input = document.getElementById(id);
-  const normalized = String(input.value ?? '').trim().replace(/\s+/g, '');
-  const match = normalized.match(/^(\d{1,3})\.(\d{2})\.(\d{2})$/);
-  const hours = match ? Number(match[1]) : NaN;
-  const minutes = match ? Number(match[2]) : NaN;
-  const seconds = match ? Number(match[3]) : NaN;
-  const valid = Number.isFinite(hours)
-    && minutes >= 0 && minutes < 60
-    && seconds >= 0 && seconds < 60;
+  const unit = document.getElementById(`${id}-unit`)?.value || 'seconds';
+  const rawValue = parsePredictNumber(input.value, NaN);
+  const seconds = unit === 'hours' ? rawValue * 3600 : rawValue;
+  const valid = Number.isFinite(seconds) && seconds > 0;
   input.classList.toggle('input-error', !valid);
-  return valid ? hours * 3600 + minutes * 60 + seconds : fallbackSeconds;
+  return valid ? seconds : fallbackSeconds;
+}
+
+function formatCompactNumber(value, digits = 2) {
+  if (!Number.isFinite(value)) return '—';
+  return Number(value.toFixed(digits)).toLocaleString('ru-RU');
+}
+
+function syncFloatDurationConversion() {
+  const input = document.getElementById('inp-float-dur');
+  const unit = document.getElementById('inp-float-dur-unit');
+  const output = document.getElementById('float-dur-conversion');
+  if (!input || !unit || !output) return;
+
+  const rawValue = parsePredictNumber(input.value, NaN);
+  const valid = Number.isFinite(rawValue) && rawValue > 0;
+  input.classList.toggle('input-error', !valid);
+
+  if (!valid) {
+    output.textContent = 'Введите положительное число';
+    return;
+  }
+
+  if (unit.value === 'hours') {
+    output.textContent = `= ${Math.round(rawValue * 3600).toLocaleString('ru-RU')} сек`;
+  } else {
+    output.textContent = `≈ ${formatCompactNumber(rawValue / 3600)} ч`;
+  }
 }
 
 function formatCsvNumber(value, digits = 6) {
@@ -968,9 +1015,9 @@ function applyPredictQueryParams() {
   document.getElementById('inp-burst').value = burstAltitude;
   document.getElementById('inp-descent').value = descentRate;
   if (Number.isFinite(maxFloatSeconds)) {
-    document.getElementById('inp-float-dur').value = formatDurationSeconds(maxFloatSeconds);
+    setFloatDurationSeconds(maxFloatSeconds);
   } else {
-    document.getElementById('inp-float-dur').value = formatDurationSeconds(maxFloatHours * 3600);
+    setFloatDurationSeconds(maxFloatHours * 3600);
   }
   document.getElementById('inp-profile').value = profile === 'float_profile' ? 'float_profile' : 'standard';
   document.getElementById('inp-gfs-mode').value = gfsMode === 'full' ? 'full' : 'approx';
@@ -1010,10 +1057,13 @@ function toggleFloatDuration() {
 
   if (floatAltField) {
     floatAltField.style.display = isFloatProfile ? '' : 'none';
+    floatAltField.classList.toggle('full-width', isFloatProfile);
   }
   if (burstField) {
     burstField.style.display = isFloatProfile ? 'none' : '';
+    burstField.classList.toggle('full-width', !isFloatProfile);
   }
+  syncFloatDurationConversion();
 }
 // ─────────────── Переключатель меню ─────────────
 let menuOpen = true;
@@ -1043,7 +1093,7 @@ function initResponsiveMenu() {
 // ─────────────── Цвета фаз ──────────────────────
 function phaseColor(phase) {
   if (phase === 'ascent')  return '#3f9b58';
-  if (phase === 'float')   return '#e2a43b';
+  if (phase === 'float')   return '#ff7629';
   if (phase === 'descent') return '#df715f';
   return '#87959d';
 }
@@ -1255,6 +1305,8 @@ function getCsrfToken() {
 }
 
 const hasPredictParams = applyPredictQueryParams();
+document.getElementById('inp-float-dur')?.addEventListener('input', syncFloatDurationConversion);
+document.getElementById('inp-float-dur-unit')?.addEventListener('change', syncFloatDurationConversion);
 toggleFloatDuration();
 initResponsiveMenu();
 if (hasPredictParams) {
