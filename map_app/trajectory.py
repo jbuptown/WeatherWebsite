@@ -1,7 +1,7 @@
 """
-Balloon trajectory prediction using NOAA GFS 0.5-degree GRIB2 data.
+Balloon trajectory prediction using NOAA GFS 1.0/0.5-degree GRIB2 data.
 
-Data source  : NOAA NOMADS filter service
+Data source  : NOAA GFS Open Data on AWS
 File         : gfs.t{HH}z.pgrb2*.{GRID}.f{FFF}
 Resolution   : 1.0 or 0.5 degrees
 Levels       : isobaric pressure levels, 1-1000 hPa
@@ -25,21 +25,20 @@ from datetime import datetime, timedelta
 from .elevation import get_elevation
 
 EARTH_RADIUS  = 6_371_009.0
-NOMADS_FILTERS = {
+GFS_S3_BASE = 'https://noaa-gfs-bdp-pds.s3.amazonaws.com'
+GFS_GRIDS = {
     'approx': {
         'label': '1.0°',
-        'filter': 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl',
         'file_suffix': 'pgrb2.1p00',
     },
     'full': {
         'label': '0.5°',
-        'filter': 'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p50.pl',
         'file_suffix': 'pgrb2full.0p50',
     },
 }
-GFS_CACHE_VERSION = 1
+GFS_CACHE_VERSION = 3
 GFS_DOWNLOAD_WORKERS = 6
-NOMADS_HISTORY_DAYS = 8
+GFS_HISTORY_DAYS = 8
 ECCODES_PARSE_LOCK = Lock()
 
 
@@ -135,11 +134,11 @@ def _gfs_run_dt(launch_dt: datetime) -> datetime:
     """
     now = datetime.utcnow()
     oldest = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    oldest -= timedelta(days=NOMADS_HISTORY_DAYS)
+    oldest -= timedelta(days=GFS_HISTORY_DAYS)
     if launch_dt < oldest:
         raise ValueError(
-            f"Архив NOMADS хранит оперативные данные GFS примерно "
-            f"{NOMADS_HISTORY_DAYS + 1} суток. Выберите дату не ранее "
+            f"Приложение поддерживает расчёт GFS примерно за "
+            f"{GFS_HISTORY_DAYS + 1} суток. Выберите дату не ранее "
             f"{oldest.strftime('%Y-%m-%d')}"
         )
 
@@ -173,12 +172,71 @@ def _fxx_list(run_dt: datetime, launch_dt: datetime,
 
 # ─────────────────────── Загрузка и разбор GRIB2 ────────────────────────────
 
+def _aws_object_url(run_dt: datetime, fxx: int, gfs_mode: str) -> str:
+    grid = GFS_GRIDS[gfs_mode]
+    dat = run_dt.strftime('%Y%m%d')
+    rh = f'{run_dt.hour:02d}'
+    filename = f'gfs.t{rh}z.{grid["file_suffix"]}.f{fxx:03d}'
+    return f'{GFS_S3_BASE}/gfs.{dat}/{rh}/atmos/{filename}'
+
+
+def _inventory_is_needed(line: str) -> bool:
+    parts = line.strip().split(':')
+    if len(parts) < 5:
+        return False
+    variable, level_name = parts[3], parts[4]
+    if variable == 'HGT' and level_name == 'surface':
+        return True
+    if variable not in ('UGRD', 'VGRD', 'HGT') or not level_name.endswith(' mb'):
+        return False
+    try:
+        level = float(level_name[:-3])
+    except ValueError:
+        return False
+    return level.is_integer() and int(level) in GFS_LEVELS_HPA
+
+
+def _selected_grib_ranges(index_text: str) -> list[tuple[int, int]]:
+    records = []
+    for line in index_text.splitlines():
+        parts = line.split(':', 2)
+        if len(parts) < 3:
+            continue
+        try:
+            records.append((int(parts[1]), line))
+        except ValueError:
+            continue
+
+    selected = []
+    for idx, (start, line) in enumerate(records):
+        if not _inventory_is_needed(line):
+            continue
+        if idx + 1 >= len(records):
+            raise RuntimeError('Selected GRIB message has no following index offset')
+        selected.append((idx, start, records[idx + 1][0] - 1))
+
+    if not selected:
+        raise RuntimeError('No required UGRD/VGRD/HGT messages in GFS index')
+
+    ranges = []
+    prev_idx, start, end = selected[0]
+    for idx, next_start, next_end in selected[1:]:
+        if idx == prev_idx + 1:
+            end = next_end
+        else:
+            ranges.append((start, end))
+            start, end = next_start, next_end
+        prev_idx = idx
+    ranges.append((start, end))
+    return ranges
+
+
 def _fetch_grib2(run_dt: datetime, fxx: int,
                  lat_min: float, lat_max: float,
                  lon_min: float, lon_max: float,
                  gfs_mode: str = 'approx') -> dict:
     """
-    Download one GFS forecast slice from NOMADS and parse it.
+    Download selected messages from one AWS GFS forecast slice and parse them.
 
     Returns:
         {
@@ -188,20 +246,13 @@ def _fetch_grib2(run_dt: datetime, fxx: int,
           'v':    {hPa: ndarray(nj,ni)},
         }
     """
-    grid = NOMADS_FILTERS[gfs_mode]
-    rh  = f'{run_dt.hour:02d}'
-    dat = run_dt.strftime('%Y%m%d')
-    url = (grid['filter']
-           + f'?file=gfs.t{rh}z.{grid["file_suffix"]}.f{fxx:03d}'
-           + '&all_lev=on'
-           + '&var_UGRD=on&var_VGRD=on&var_HGT=on'
-           + f'&subregion=&leftlon={lon_min:.2f}&rightlon={lon_max:.2f}'
-           + f'&toplat={lat_max:.2f}&bottomlat={lat_min:.2f}'
-           + f'&dir=%2Fgfs.{dat}%2F{rh}%2Fatmos')
+    url = _aws_object_url(run_dt, fxx, gfs_mode)
 
-    cache_key = hashlib.sha256(
-        f"{GFS_CACHE_VERSION}:{url}".encode("utf-8")
-    ).hexdigest()
+    cache_identity = (
+        f'{GFS_CACHE_VERSION}:{url}:'
+        f'{lat_min:.2f}:{lat_max:.2f}:{lon_min:.2f}:{lon_max:.2f}'
+    )
+    cache_key = hashlib.sha256(cache_identity.encode('utf-8')).hexdigest()
     cache_path = _gfs_cache_dir() / f"{cache_key}.pickle"
     if cache_path.exists():
         try:
@@ -210,22 +261,40 @@ def _fetch_grib2(run_dt: datetime, fxx: int,
         except (OSError, EOFError, pickle.PickleError):
             cache_path.unlink(missing_ok=True)
 
-    r = requests.get(url, timeout=90)
-    if r.status_code != 200 or r.content[:4] != b'GRIB':
+    session = requests.Session()
+    index_response = session.get(url + '.idx', timeout=30)
+    if index_response.status_code != 200:
         raise RuntimeError(
-            f'NOMADS f{fxx:03d}: HTTP {r.status_code}, '
-            f'body={r.content[:80]}'
+            f'AWS GFS index f{fxx:03d}: HTTP {index_response.status_code}'
         )
+    ranges = _selected_grib_ranges(index_response.text)
 
     fd, tmp = tempfile.mkstemp(suffix='.grib2')
     try:
         with os.fdopen(fd, 'wb') as f:
-            f.write(r.content)
+            for start, end in ranges:
+                response = session.get(
+                    url,
+                    headers={'Range': f'bytes={start}-{end}'},
+                    timeout=90,
+                )
+                if response.status_code != 206 or response.content[:4] != b'GRIB':
+                    raise RuntimeError(
+                        f'AWS GFS f{fxx:03d} range {start}-{end}: '
+                        f'HTTP {response.status_code}, body={response.content[:80]}'
+                    )
+                f.write(response.content)
         # Парсер определений ecCodes не поддерживает безопасную работу из
         # нескольких потоков в Windows. Загрузки могут идти одновременно,
         # но декодирование GRIB выполняется последовательно.
         with ECCODES_PARSE_LOCK:
-            result = _parse_grib2(tmp)
+            result = _parse_grib2(
+                tmp,
+                lat_min=lat_min,
+                lat_max=lat_max,
+                lon_center=(lon_min + lon_max) / 2,
+                lon_margin=(lon_max - lon_min) / 2,
+            )
         cache_fd, cache_tmp = tempfile.mkstemp(
             suffix=".pickle", dir=_gfs_cache_dir()
         )
@@ -244,7 +313,39 @@ def _fetch_grib2(run_dt: datetime, fxx: int,
             pass
 
 
-def _parse_grib2(path: str) -> dict:
+def _grid_subset_indices(ni: int, nj: int,
+                         lat1: float, lat2: float,
+                         lon1: float, lon2: float,
+                         lat_min: float, lat_max: float,
+                         lon_center: float, lon_margin: float) -> tuple:
+    dlat = (lat2 - lat1) / (nj - 1) if nj > 1 else 0.0
+    dlon = (lon2 - lon1) / (ni - 1) if ni > 1 else 0.0
+    full_lats = [lat1 + idx * dlat for idx in range(nj)]
+    full_lons = [lon1 + idx * dlon for idx in range(ni)]
+
+    lat_indices = [
+        idx for idx, value in enumerate(full_lats)
+        if lat_min <= value <= lat_max
+    ]
+    lon_candidates = []
+    for idx, value in enumerate(full_lons):
+        unwrapped = lon_center + ((value - lon_center + 180.0) % 360.0) - 180.0
+        if abs(unwrapped - lon_center) <= lon_margin:
+            lon_candidates.append((unwrapped, idx))
+    lon_candidates.sort()
+
+    if len(lat_indices) < 2 or len(lon_candidates) < 2:
+        raise RuntimeError('Requested region is outside the downloaded GFS grid')
+
+    lons = [value for value, _ in lon_candidates]
+    lon_indices = [idx for _, idx in lon_candidates]
+    lats = [full_lats[idx] for idx in lat_indices]
+    return lats, lons, lat_indices, lon_indices
+
+
+def _parse_grib2(path: str,
+                 lat_min: float = -90.0, lat_max: float = 90.0,
+                 lon_center: float = 0.0, lon_margin: float = 180.0) -> dict:
     """
     Parse GRIB2 file, extract isobaricInhPa U/V wind grids.
     Returns dict with lats, lons, u{hPa→2D}, v{hPa→2D}.
@@ -254,6 +355,8 @@ def _parse_grib2(path: str) -> dict:
         'u': {}, 'v': {}, 'hgt': {},
         'surface_hgt': None,
     }
+    lat_indices = None
+    lon_indices = None
 
     with open(path, 'rb') as f:
         while True:
@@ -293,10 +396,14 @@ def _parse_grib2(path: str) -> dict:
                         vals = vals / 9.80665
 
                 if result['lats'] is None:
-                    dlat = (lat2 - lat1) / (nj - 1) if nj > 1 else 0.0
-                    dlon = (lon2 - lon1) / (ni - 1) if ni > 1 else 0.0
-                    result['lats'] = [lat1 + i * dlat for i in range(nj)]
-                    result['lons'] = [lon1 + i * dlon for i in range(ni)]
+                    lats, lons, lat_indices, lon_indices = _grid_subset_indices(
+                        ni, nj, lat1, lat2, lon1, lon2,
+                        lat_min, lat_max, lon_center, lon_margin,
+                    )
+                    result['lats'] = lats
+                    result['lons'] = lons
+
+                vals = vals[lat_indices, :][:, lon_indices]
 
                 if is_surface_hgt:
                     result['surface_hgt'] = vals
@@ -675,10 +782,10 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
 
     first_grid = next(iter(ds.grids.values()), {})
     levels_count = len(first_grid.get('u', {}))
-    grid_label = NOMADS_FILTERS[gfs_mode]['label']
-    file_suffix = NOMADS_FILTERS[gfs_mode]['file_suffix']
+    grid_label = GFS_GRIDS[gfs_mode]['label']
+    file_suffix = GFS_GRIDS[gfs_mode]['file_suffix']
     info = {
-        'source':    (f'NOAA GFS {grid_label} {file_suffix} — RK4, variable descent '
+        'source':    (f'NOAA GFS AWS {grid_label} {file_suffix} — RK4, variable descent '
                       f'(run {ds.run_dt.strftime("%Y-%m-%d %HZ")})'),
         'points':    len(trajectory),
         'api_calls': len(ds.grids),

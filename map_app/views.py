@@ -4,7 +4,7 @@ from datetime import datetime
 from django.shortcuts import render
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 
 from .models import MapPoint
 from .trajectory import calculate_trajectory
@@ -75,11 +75,11 @@ def get_points(request):
     ]
     return JsonResponse(data, safe=False)
 
-
+@csrf_exempt
 @require_http_methods(["POST"])
 def predict_trajectory(request):
     """
-    Calculate balloon trajectory using local NOAA GFS wind data.
+    Calculate balloon trajectory using NOAA GFS data from AWS Open Data.
 
     Expected JSON body:
     {

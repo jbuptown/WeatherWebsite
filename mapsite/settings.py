@@ -28,6 +28,7 @@ CSRF_TRUSTED_ORIGINS = [
 # Настройка приложений
 
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -121,3 +123,19 @@ if os.environ.get("DJANGO_HTTPS", "false").lower() == "true":
     SECURE_HSTS_SECONDS = 31_536_000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+
+CORS_ALLOWED_ORIGINS = [
+    "https://stratosystems.ru",
+    "https://www.stratosystems.ru",
+]
+
+ALLOWED_HOSTS += [
+    "api.stratosystems.ru",
+    "161.104.49.7",
+]
+
+CORS_URLS_REGEX = r"^/api/.*$"
+
+CSRF_TRUSTED_ORIGINS += [
+    "https://api.stratosystems.ru",
+]

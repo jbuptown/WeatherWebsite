@@ -553,7 +553,7 @@
 <!-- Экран загрузки -->
 <div id="loading">
   <div class="spinner"></div>
-  <p id="loading-msg">Загружаю данные ветра из ECMWF…</p>
+  <p id="loading-msg">Загружаю данные ветра из NOAA GFS AWS…</p>
 </div>
 
 <!-- Приветственное окно -->
@@ -1165,7 +1165,7 @@ async function runPrediction() {
 
     const inf = data.info || {};
     const gridText = inf.grid ? ` · сетка ${inf.grid}` : '';
-    showStatus(`Траектория готова · ${inf.source || 'ECMWF'}${gridText} · ${data.trajectory.length} точек`);
+    showStatus(`Траектория готова · ${inf.source || 'NOAA GFS AWS'}${gridText} · ${data.trajectory.length} точек`);
 
   } catch (err) {
     showStatus('Ошибка: ' + err.message, true);

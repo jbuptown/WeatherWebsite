@@ -1,11 +1,11 @@
 ﻿# WeatherWebsite — Balloon Trajectory Predictor
 
-Веб-приложение для расчёта траектории полёта метеозонда на основе реальных данных ветра ECMWF. Построено на Django + MapLibre GL JS.
+Веб-приложение для расчёта траектории полёта метеозонда на основе данных NOAA GFS из AWS Open Data. Построено на Django + MapLibre GL JS.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-4.x-green?logo=django&logoColor=white)
 ![MapLibre](https://img.shields.io/badge/MapLibre_GL_JS-4.5-orange)
-![Data](https://img.shields.io/badge/Wind_Data-ECMWF_via_Open--Meteo-purple)
+![Data](https://img.shields.io/badge/Wind_Data-NOAA_GFS_on_AWS-blue)
 
 ---
 
@@ -13,7 +13,8 @@
 
 - Интерактивная карта — кликните для выбора точки старта
 - Два профиля полёта: **стандартный** (подъём → разрыв → спуск) и **парящий** (подъём → плавание → спуск)
-- Реальные данные ветра ECMWF на всех высотах (1000–50 гПа)
+- Реальные данные ветра NOAA GFS на всех высотах (1000–1 гПа в зависимости от сетки)
+- Выбор сетки расчёта: приближенная 1.0° или точная 0.5°
 - Цветная траектория по фазам: подъём / плавание / спуск
 - Попапы с координатами старта и финиша
 - Работает в России без VPN (OpenStreetMap + jsDelivr CDN)
@@ -47,7 +48,7 @@ python manage.py runserver
 | Backend | Django (Python) |
 | Frontend | MapLibre GL JS 4.5 |
 | Карта | OpenStreetMap |
-| Данные ветра | Open-Meteo ECMWF API |
+| Данные ветра | NOAA GFS AWS Open Data |
 | БД | SQLite |
 
 ---
