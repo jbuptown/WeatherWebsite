@@ -1144,7 +1144,7 @@ async function runPrediction() {
       ? `Медленный полёт: около ${Math.round(estimatedHours)} ч · ${modeLabel} · подготавливаю до ${forecastSlices} прогнозов GFS…`
       : `Загружаю данные ветра GFS · ${modeLabel}…`;
 
-    const res  = await fetch('/api/predict/', {
+    const res  = await fetch("{% url 'predict_trajectory' %}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
       body: JSON.stringify(body),

@@ -24,6 +24,10 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
+# Префикс подкаталога при деплое, например DJANGO_SCRIPT_NAME=/balloon.
+# Не задан — сайт работает в корне домена (локальная разработка).
+FORCE_SCRIPT_NAME = os.environ.get("DJANGO_SCRIPT_NAME") or None
+
 
 # Настройка приложений
 
@@ -134,7 +138,8 @@ ALLOWED_HOSTS += [
     "161.104.49.7",
 ]
 
-CORS_URLS_REGEX = r"^/api/.*$"
+# Путь запроса включает префикс подкаталога, поэтому /api/ ищется не только от корня.
+CORS_URLS_REGEX = r"^/(?:.+/)?api/.*$"
 
 CSRF_TRUSTED_ORIGINS += [
     "https://api.stratosystems.ru",
