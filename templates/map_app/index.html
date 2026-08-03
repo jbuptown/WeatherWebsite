@@ -1137,7 +1137,7 @@ async function runPrediction() {
     const ascentHours = Math.max(0, targetAltitude - body.altitude) / body.ascent_rate / 3600;
     const driftHours = body.profile === 'float_profile' ? body.max_float_seconds / 3600 : 0;
     const estimatedHours = ascentHours + driftHours
-      + targetAltitude / body.descent_rate / 3600 / 2.5;
+      + targetAltitude / body.descent_rate / 3600;
     const forecastSlices = Math.ceil(estimatedHours / 3) + 2;
     const modeLabel = body.gfs_mode === 'full' ? 'точная сетка 0.5°' : 'приближенная сетка 1.0°';
     document.getElementById('loading-msg').textContent = estimatedHours > 12
