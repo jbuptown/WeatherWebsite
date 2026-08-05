@@ -143,7 +143,9 @@ CORS_ALLOWED_ORIGINS = [
 
 ALLOWED_HOSTS += [
     "api.stratosystems.ru",
+    "predict.stratosystems.ru",
     "161.104.49.7",
+    "139.100.235.137",
 ]
 
 # Путь запроса включает префикс подкаталога, поэтому /api/ ищется не только от корня.
