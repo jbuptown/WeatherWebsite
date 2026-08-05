@@ -1098,6 +1098,41 @@ function phaseColor(phase) {
   return '#87959d';
 }
 
+// ─────────────── Опрос фоновой задачи ───────────
+const POLL_INTERVAL_MS = 1000;
+const POLL_TIMEOUT_MS  = 15 * 60 * 1000;   // столько же, сколько job_timeout на сервере
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Спрашивает статус раз в секунду, пока расчёт не закончится.
+// Возвращает готовый ответ сервера либо бросает ошибку с понятным текстом.
+async function pollPrediction(taskId, baseMsg) {
+  // Django подставляет путь с заглушкой, JS меняет её на настоящий id.
+  // Так URL остаётся верным и при деплое в подкаталог (FORCE_SCRIPT_NAME).
+  const statusUrl = "{% url 'predict_status' 'TASK_ID' %}".replace('TASK_ID', taskId);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < POLL_TIMEOUT_MS) {
+    await sleep(POLL_INTERVAL_MS);
+
+    const res = await fetch(statusUrl);
+    if (res.status === 404) throw new Error('Задача не найдена или устарела');
+    if (!res.ok)            throw new Error(`Сервер вернул ошибку ${res.status}`);
+
+    const data = await res.json();
+
+    if (data.status === 'finished') return data;
+    if (data.status === 'failed')   throw new Error(data.error || 'Расчёт не удался');
+
+    const secs = Math.round((Date.now() - startedAt) / 1000);
+    document.getElementById('loading-msg').textContent = data.status === 'running'
+      ? `${baseMsg} · ${secs} с`
+      : `Ожидаю свободный обработчик… · ${secs} с`;
+  }
+
+  throw new Error('Расчёт занял слишком много времени');
+}
+
 // ─────────────── Запуск расчёта ─────────────────
 async function runPrediction() {
   const lat = readNumber('inp-lat', NaN, -90, 90);
@@ -1144,22 +1179,30 @@ async function runPrediction() {
       ? `Медленный полёт: около ${Math.round(estimatedHours)} ч · ${modeLabel} · подготавливаю до ${forecastSlices} прогнозов GFS…`
       : `Загружаю данные ветра GFS · ${modeLabel}…`;
 
-    const res  = await fetch("{% url 'predict_trajectory' %}", {
+    // Сообщение, собранное выше, служит основой для строки прогресса.
+    const baseMsg = document.getElementById('loading-msg').textContent;
+
+    // 1. Ставим расчёт в очередь — сервер отвечает сразу, не дожидаясь результата.
+    const startRes = await fetch("{% url 'predict_start' %}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrfToken() },
       body: JSON.stringify(body),
     });
-    const responseText = await res.text();
-    let data;
+
+    let startData = null;
     try {
-      data = JSON.parse(responseText);
+      startData = JSON.parse(await startRes.text());
     } catch {
-      const defaultMessage = res.status === 403
+      throw new Error(startRes.status === 403
         ? 'Сессия устарела. Обновите страницу и повторите расчет.'
-        : `Сервер вернул ошибку ${res.status}`;
-      throw new Error(defaultMessage);
+        : `Сервер вернул ошибку ${startRes.status}`);
     }
-    if (!res.ok || data.error) throw new Error(data.error || `Ошибка сервера ${res.status}`);
+    if (!startRes.ok || startData.error || !startData.task_id) {
+      throw new Error(startData.error || `Ошибка сервера ${startRes.status}`);
+    }
+
+    // 2. Ждём результат, опрашивая статус задачи.
+    const data = await pollPrediction(startData.task_id, baseMsg);
 
     drawTrajectory(data.trajectory, lat, lon);
 

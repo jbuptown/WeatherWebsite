@@ -9,12 +9,52 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from .models import MapPoint
 from .trajectory import calculate_trajectory
 
+import django_rq
+
+from .tasks import predict_trajectory_task
+
 
 def _parse_float(value):
     if isinstance(value, str):
         value = value.strip().replace(" ", "").replace(",", ".")
     return float(value)
 
+def _clean_predict_params(data):
+    """Проверяет входные данные и возвращает словарь примитивов для фоновой задачи."""
+    params = {
+        'latitude':       _parse_float(data['latitude']),
+        'longitude':      _parse_float(data['longitude']),
+        'altitude':       _parse_float(data.get('altitude',       100.0)),
+        'ascent_rate':    _parse_float(data.get('ascent_rate',    3.0)),
+        'float_altitude': _parse_float(data.get('float_altitude', 5000.0)),
+        'burst_altitude': _parse_float(data.get('burst_altitude', 30000.0)),
+        'descent_rate':   _parse_float(data.get('descent_rate',   5.0)),
+        'profile':        str(data.get('profile', 'standard')),
+    }
+
+    if 'max_float_seconds' in data:
+        params['max_float_seconds'] = _parse_float(data['max_float_seconds'])
+    else:
+        params['max_float_seconds'] = _parse_float(data.get('max_float_hours', 48.0)) * 3600
+
+    gfs_mode = str(data.get('gfs_mode', 'approx'))
+    if gfs_mode == 'fast':
+        gfs_mode = 'approx'
+    if gfs_mode not in ('approx', 'full'):
+        raise ValueError('gfs_mode must be approx or full')
+    params['gfs_mode'] = gfs_mode
+
+    if params['ascent_rate'] <= 0 or params['descent_rate'] <= 0:
+        raise ValueError('Ascent and descent rates must be greater than zero')
+    if params['max_float_seconds'] <= 0:
+        raise ValueError('Float duration must be greater than zero')
+
+    params['launch_date'] = data.get('launch_date', datetime.utcnow().strftime('%Y-%m-%d'))
+    params['launch_time'] = data.get('launch_time', '00:00')
+
+    datetime.strptime(f"{params['launch_date']} {params['launch_time']}", '%Y-%m-%d %H:%M')
+
+    return params
 
 @ensure_csrf_cookie
 def index(request):
@@ -140,3 +180,47 @@ def predict_trajectory(request):
         return JsonResponse({'error': f'Invalid parameters: {e}'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def predict_start(request):
+    """Ставит расчёт траектории в очередь. Отвечает сразу, не дожидаясь результата."""
+    try:
+        params = _clean_predict_params(json.loads(request.body))
+    except (KeyError, ValueError, json.JSONDecodeError) as e:
+        return JsonResponse({'error': f'Invalid parameters: {e}'}, status=400)
+
+    queue = django_rq.get_queue('default')
+    job = queue.enqueue(
+        predict_trajectory_task,
+        params,
+        job_timeout=900,
+        result_ttl=3600,
+        failure_ttl=3600,
+    )
+
+    return JsonResponse({'task_id': job.id, 'status': 'queued'}, status=202)
+
+@require_http_methods(["GET"])
+def predict_status(request, job_id):
+    """Возвращает состояние задачи, а когда она готова — результат расчёта."""
+    queue = django_rq.get_queue('default')
+    job = queue.fetch_job(job_id)
+
+    if job is None:
+        return JsonResponse({'error': 'Task not found or expired'}, status=404)
+
+    payload = {'task_id': job.id}
+
+    if job.is_finished:
+        payload['status'] = 'finished'
+        payload.update(job.return_value())      # trajectory + info
+    elif job.is_failed:
+        payload['status'] = 'failed'
+        payload['error'] = (job.exc_info or 'unknown error').strip().splitlines()[-1]
+    elif job.is_started:
+        payload['status'] = 'running'
+    else:
+        payload['status'] = 'queued'
+
+    return JsonResponse(payload)

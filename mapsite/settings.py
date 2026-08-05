@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'map_app',
+    'django_rq',
 ]
 
 MIDDLEWARE = [
@@ -80,7 +81,14 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
-
+RQ_QUEUES = {
+    'default': {
+        'HOST': os.environ.get('REDIS_HOST', '127.0.0.1'),
+        'PORT': int(os.environ.get('REDIS_PORT', '6379')),
+        'DB': 0,
+        'DEFAULT_TIMEOUT': 900,
+    },
+}
 
 # Проверка паролей
 AUTH_PASSWORD_VALIDATORS = [
