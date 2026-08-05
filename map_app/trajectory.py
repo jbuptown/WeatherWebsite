@@ -91,33 +91,6 @@ def pressure_to_altitude(p: float) -> float:
     return (lo + hi) / 2
 
 
-def _atmosphere_density(alt_m: float) -> float:
-    """Return atmospheric density from the NASA atmosphere model, kg/m^3."""
-    alt_m = max(0.0, alt_m)
-    if alt_m > 25_000:
-        temp = -131.21 + 0.00299 * alt_m
-        pressure = 2.488 * ((temp + 273.1) / 216.6) ** -11.388
-    elif alt_m > 11_000:
-        temp = -56.46
-        pressure = 22.65 * math.exp(1.73 - 0.000157 * alt_m)
-    else:
-        temp = 15.04 - 0.00649 * alt_m
-        pressure = 101.29 * ((temp + 273.1) / 288.08) ** 5.256
-    return pressure / (0.2869 * (temp + 273.1))
-
-
-def _descent_rate_at_alt(sea_level_rate: float, alt_m: float) -> float:
-    """
-    Scale descent speed at altitude using atmospheric density.
-
-    From drag-force balance (constant mass, constant drag coefficient):
-        F_drag = ½ · Cd · A · ρ(h) · v(h)² = m·g  ⟹  v(h) = v_ref · √(ρ₀/ρ(h))
-
-    At burst altitude (~30 km, ρ ≈ 0.018 kg/m³):
-        v ≈ 5 × √(1.225/0.018) ≈ 41 m/s  →  balloon falls very fast initially.
-    """
-    drag_coefficient = sea_level_rate * 1.1045
-    return drag_coefficient / math.sqrt(_atmosphere_density(alt_m))
 
 
 # Заранее вычисляем высоту каждого уровня давления GFS для интерполяции
@@ -661,10 +634,9 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
     wind interpolation, density-adjusted descent speed and RK4 integration
     with a 60-second timestep.
     """
-    # Из-за влияния плотности спуск примерно втрое быстрее оценки с постоянной
-    # скоростью. Берём запас, чтобы прогноз всегда охватывал нужное число часов.
+
     ascent_h  = burst_altitude / ascent_rate / 3600
-    descent_h = burst_altitude / descent_rate / 3600 / 2.5   # avg density factor
+    descent_h = burst_altitude / descent_rate / 3600   
     float_h   = max_float_seconds / 3600
     flight_h  = (float_h + 10 if profile == 'float_profile'
                  else ascent_h + descent_h + 2)
@@ -754,8 +726,7 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
 
         elif phase == 'descent':
             start_state = (cur_lat, cur_lon, cur_alt, cur_time)
-            vertical_rate = lambda height: -_descent_rate_at_alt(
-                descent_rate, height)
+            vertical_rate = lambda _height: -descent_rate
             next_lat, next_lon, next_alt = _rk4_step(
                 ds, cur_lat, cur_lon, cur_alt, cur_time, DT, vertical_rate)
             end_state = (
