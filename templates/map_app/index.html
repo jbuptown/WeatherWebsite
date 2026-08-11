@@ -6,9 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Расчёт траектории полёта</title>
 
-  <!-- MapLibre GL JS (jsdelivr.net — доступен в РФ без VPN) -->
-  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.5.0/dist/maplibre-gl.css" rel="stylesheet" />
-  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.5.0/dist/maplibre-gl.js"></script>
+  <!-- Yandex Maps JS API 2.1 (доступен в РФ без VPN) -->
+  <script src="https://api-maps.yandex.ru/2.1/?apikey=14893153-03b0-4a66-a999-40bb38804538&lang=ru_RU"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -233,7 +232,8 @@
     #btn-calc:disabled { background: #c0b0f0; box-shadow: none; cursor: not-allowed; }
 
     #btn-clear,
-    #btn-export {
+    #btn-export,
+    #btn-export-kml {
       margin-top: 8px;
       width: 100%;
       padding: 9px;
@@ -246,10 +246,17 @@
       transition: background .2s;
       flex-shrink: 0;
     }
-    #btn-export { display: none; }
+    #btn-export,
+    #btn-export-kml { display: none; }
     #btn-export {
       background: #1f9d55;
       border-color: #1f9d55;
+      color: #fff;
+      font-weight: 700;
+    }
+    #btn-export-kml {
+      background: #2f6fd0;
+      border-color: #2f6fd0;
       color: #fff;
       font-weight: 700;
     }
@@ -258,6 +265,11 @@
     #btn-export:hover {
       background: #188047;
       border-color: #188047;
+      color: #fff;
+    }
+    #btn-export-kml:hover {
+      background: #255ab0;
+      border-color: #255ab0;
       color: #fff;
     }
 
@@ -345,29 +357,53 @@
     .leg-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #444; }
     .leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
-    /* ── Настройка всплывающего окна MapLibre ── */
-    .maplibregl-popup-content {
-      border-radius: 12px !important;
-      padding: 12px 14px !important;
-      box-shadow: 0 4px 20px rgba(0,0,0,.15) !important;
+    /* ── Всплывающее окно (балун) над точкой ── */
+    .ymap-balloon {
+      position: absolute;
+      background: var(--ink);
+      border: 1px solid #444;
+      border-radius: 6px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.45);
+      padding: 12px 36px 12px 14px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
-      color: #333;
-      min-width: 160px;
+      color: #fff;
+      min-width: 170px;
+      white-space: nowrap;
     }
-    .maplibregl-popup-close-button {
-      font-size: 18px !important;
-      color: #888 !important;
-      top: 4px !important; right: 8px !important;
+    .ymap-balloon__close {
+      position: absolute;
+      top: 8px; right: 9px;
+      width: 20px; height: 20px;
+      border: none;
+      border-radius: 50%;
+      background: var(--ink-muted);
+      color: var(--white-soft);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background .2s, color .2s;
+    }
+    .ymap-balloon__close:hover { background: #3a3a3a; color: #fff; }
+    .ymap-balloon__tail {
+      position: absolute;
+      left: 50%; bottom: -7px;
+      width: 12px; height: 12px;
+      margin-left: -6px;
+      background: var(--ink);
+      border-right: 1px solid #444;
+      border-bottom: 1px solid #444;
+      transform: rotate(45deg);
     }
     .popup-title {
       font-weight: 700;
       font-size: 14px;
-      color: #222;
+      color: #fff;
       margin-bottom: 6px;
     }
-    .popup-row  { color: #555; margin-bottom: 2px; }
-    .popup-row span { font-weight: 600; color: #222; }
+    .popup-row  { color: #bbb; margin-bottom: 2px; }
+    .popup-row b, .popup-row span { font-weight: 600; color: #fff; }
 
     /* ── Точечные маркеры старта, финиша и разрыва ── */
     .balloon-marker, .flag-marker, .burst-marker { cursor: pointer; }
@@ -460,7 +496,8 @@
     #btn-calc:hover:not(:disabled) { background: #ff8b4a; }
     #btn-calc:disabled { background: #665536; color: #adb3b6; }
     #btn-clear,
-    #btn-export {
+    #btn-export,
+    #btn-export-kml {
       border-radius: 6px;
       border-color: #444;
       background: var(--ink-soft);
@@ -471,11 +508,21 @@
       border-color: #2fbf70;
       color: #fff;
     }
+    #btn-export-kml {
+      background: #2b5fae;
+      border-color: #4f8ade;
+      color: #fff;
+    }
     #btn-clear:hover,
     #btn-export:hover { background: #293137; border-color: var(--white-soft); }
     #btn-export:hover {
       background: #2fbf70;
       border-color: #62d596;
+      color: #111;
+    }
+    #btn-export-kml:hover {
+      background: #4f8ade;
+      border-color: #8ab6ec;
       color: #111;
     }
     #btn-menu-open {
@@ -501,16 +548,6 @@
       background: var(--ink);
     }
     .leg-item { color: #eee; }
-    .maplibregl-popup-content {
-      border: 1px solid #444;
-      border-radius: 6px !important;
-      background: var(--ink) !important;
-      color: #fff;
-    }
-    .maplibregl-popup-tip { border-top-color: var(--ink) !important; }
-    .maplibregl-popup-close-button { color: var(--white-soft) !important; }
-    .popup-title, .popup-row span { color: #fff; }
-    .popup-row { color: #bbb; }
     .start-dot { background: var(--ascent-green); }
     .finish-dot { background: var(--coral); border-color: #fff; }
     .burst-dot { background: #fff; border-color: #111; }
@@ -662,6 +699,7 @@
 
   <button id="btn-calc" onclick="runPrediction()">Рассчитать траекторию</button>
   <button id="btn-export" onclick="downloadTrajectoryCsv()">Скачать Excel</button>
+  <button id="btn-export-kml" onclick="downloadTrajectoryKml()">Скачать KML</button>
   <button id="btn-clear" onclick="clearTrajectory()">Очистить карту</button>
 </div>
 
@@ -680,101 +718,45 @@
 
 <script>
 // ─────────────── Инициализация карты ──────────────
-const map = new maplibregl.Map({
-  container: 'map',
-  style: {
-    version: 8,
-    sources: {
-      'osm-base': {
-        type: 'raster',
-        tiles: [
-          'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-          'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        ],
-        tileSize: 256,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      },
-    },
-    layers: [{ id: 'osm-base', type: 'raster', source: 'osm-base' }],
-  },
-  center: [37.62, 55.75],
-  zoom: 10,
-  attributionControl: { compact: true },
-});
+let map, trajCollection, balloonLayout;
 
-// Если OpenFreeMap не загрузится, используем растровую карту OSM
-map.on('error', () => {
-  return;
-  if (!map.getSource('osm-raster')) {
-    map.setStyle({
-      version: 8,
-      sources: {
-        'osm-raster': {
-          type: 'raster',
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          tileSize: 256,
-          attribution: '© OpenStreetMap contributors',
-        },
-      },
-      layers: [{ id: 'osm', type: 'raster', source: 'osm-raster' }],
-    });
-  }
-});
-
+// API Яндекса подключается асинхронно, поэтому всё, что трогает карту,
+// ждёт init(). Стартовая точка из query-параметров копится здесь.
 let mapReady = false;
-map.on('load', () => {
-  mapReady = true;
+let pendingStart = null;
 
-  // Источники и слои траектории
-  map.addSource('traj-line-src', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] },
-  });
-  map.addLayer({
-    id: 'traj-line',
-    type: 'line',
-    source: 'traj-line-src',
-    layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: {
-      'line-color': ['get', 'color'],
-      'line-width': 3.5,
-      'line-opacity': .88,
-    },
-  });
+ymaps.ready(init);
+function init() {
+    balloonLayout = makeBalloonLayout();
+    map = new ymaps.Map("map", {
+        center: [55.76, 37.64],
+        controls: ['typeSelector', 'rulerControl'],
+        zoom: 7
+    },{
+        yandexMapDisablePoiInteractivity: true,
+        suppressMapOpenBlock: true,
+        maxZoom: 14,
+        minZoom: 7
+    });
+    trajCollection = new ymaps.GeoObjectCollection();
+    map.geoObjects.add(trajCollection);
+    map.events.add('click', e => {
+        const [lat, lon] = e.get('coords').map(v => +v.toFixed(4));
+        document.getElementById('inp-lat').value = lat;
+        document.getElementById('inp-lon').value = lon;
+        placeStartMarker(lat, lon);
+    });
+    mapReady = true;
 
-  map.addSource('traj-dots-src', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] },
-  });
-  map.addLayer({
-    id: 'traj-dots',
-    type: 'circle',
-    source: 'traj-dots-src',
-    paint: {
-      'circle-radius': 5,
-      'circle-color': ['get', 'color'],
-      'circle-stroke-color': '#fff',
-      'circle-stroke-width': 2,
-    },
-  });
-
-  // Всплывающее окно при нажатии на точку маршрута
-  map.on('click', 'traj-dots', e => {
-    const p = e.features[0].properties;
-    new maplibregl.Popup({ offset: 8 })
-      .setLngLat(e.lngLat)
-      .setHTML(
-        `<div class="popup-title">Промежуточная точка</div>
-         <div class="popup-row">Высота: <span>${Math.round(p.alt)} м</span></div>
-         <div class="popup-row">Время: <span>${(p.time||'').replace('T',' ').replace('Z','')} UTC</span></div>`
-      )
-      .addTo(map);
-  });
-  map.on('mouseenter', 'traj-dots', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'traj-dots', () => { map.getCanvas().style.cursor = ''; });
-});
-
+    // Отложенные до готовности карты действия: точка старта из ссылки
+    // и, если параметры расчёта заданы, автоматический запуск.
+    if (pendingStart) {
+        placeStartMarker(pendingStart.lat, pendingStart.lon);
+        map.setCenter([pendingStart.lat, pendingStart.lon], 8);
+        pendingStart = null;
+    }
+    if (hasPredictParams) runPrediction();
+}
 // ─────────────── Состояние ──────────────────────
 let startMarker = null;
 let landMarker  = null;
@@ -876,6 +858,56 @@ function formatCoordinateDms(value, positiveSuffix, negativeSuffix) {
   return `${degrees}° ${String(minutes).padStart(2, '0')}' ${seconds.toFixed(2).replace('.', ',')}" ${suffix}`;
 }
 
+// Румбы и стрелки для подписи направления сноса.
+const COMPASS_RHUMBS = [
+  'С', 'ССВ', 'СВ', 'ВСВ', 'В', 'ВЮВ', 'ЮВ', 'ЮЮВ',
+  'Ю', 'ЮЮЗ', 'ЮЗ', 'ЗЮЗ', 'З', 'ЗСЗ', 'СЗ', 'ССЗ',
+];
+const COMPASS_ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
+
+function formatBearing(bearing) {
+  const deg = ((bearing % 360) + 360) % 360;
+  const arrow = COMPASS_ARROWS[Math.round(deg / 45) % 8];
+  const rhumb = COMPASS_RHUMBS[Math.round(deg / 22.5) % 16];
+  return `${arrow} ${rhumb}`;
+}
+
+// Горизонтальная скорость и направление сноса: шар летит вместе с ветром,
+// поэтому берём смещение между соседними точками траектории.
+function trackMotion(points, index) {
+  const from = points[index - 1] || points[index];
+  const to   = points[index + 1] || points[index];
+  if (from === to) return null;
+  const seconds = (Date.parse(to.time || '') - Date.parse(from.time || '')) / 1000;
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+
+  const R = 6371000;
+  const midLat = (from.lat + to.lat) / 2 * Math.PI / 180;
+  const dy = (to.lat - from.lat) * Math.PI / 180 * R;
+  const dx = (to.lon - from.lon) * Math.PI / 180 * R * Math.cos(midLat);
+  return {
+    speed: Math.hypot(dx, dy) / seconds,
+    bearing: Math.atan2(dx, dy) * 180 / Math.PI,
+  };
+}
+
+// Блок координат для балуна: десятичные градусы, градусы/минуты/секунды
+// и прямоугольные координаты СК-42 (Гаусса-Крюгера).
+function balloonCoordinates(lat, lon) {
+  const gk = toSk42Gk(lat, lon);
+  return `Широта: <b>${lat.toFixed(4)}</b><br>Долгота: <b>${lon.toFixed(4)}</b><br>` +
+    `Широта (DMS): <b>${formatCoordinateDms(lat, 'N', 'S')}</b><br>` +
+    `Долгота (DMS): <b>${formatCoordinateDms(lon, 'E', 'W')}</b><br>` +
+    `СК-42, зона ${gk.zone}:<br>` +
+    `X = <b>${fmtMeters(gk.x)}</b><br>Y = <b>${fmtMeters(gk.y)}</b><br>`;
+}
+
+function balloonMotion(points, index) {
+  const motion = trackMotion(points, index);
+  if (!motion) return '';
+  return `Скорость / Напр.: <b>${motion.speed.toFixed(1)} м/с ${formatBearing(motion.bearing)}</b><br>`;
+}
+
 function csvCell(value) {
   const text = String(value ?? '');
   return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -921,72 +953,268 @@ function downloadTrajectoryCsv() {
   const csv = '\ufeff' + rows
     .map(row => row.map(csvCell).join(';'))
     .join('\r\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `trajectory_${exportStamp()}.csv`);
+}
+
+function exportStamp() {
+  return new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const stamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
   link.href = url;
-  link.download = `trajectory_${stamp}.csv`;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
 }
 
+// ─────────────── Экспорт KML ─────────────────────
+const PHASE_TITLES = { ascent: 'Подъём', float: 'Дрейф', descent: 'Спуск' };
+
+// Стандартные иконки Google Earth: свои картинки хостить негде,
+// а эти понимает любой просмотрщик KML.
+const KML_ICON_DOT    = 'http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png';
+const KML_ICON_START  = 'http://maps.google.com/mapfiles/kml/paddle/grn-circle.png';
+const KML_ICON_BURST  = 'http://maps.google.com/mapfiles/kml/paddle/wht-circle.png';
+const KML_ICON_FINISH = 'http://maps.google.com/mapfiles/kml/paddle/red-circle.png';
+
+function xmlEscape(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// KML хранит цвет как aabbggrr, поэтому байты #rrggbb разворачиваем.
+function kmlColor(hex, alpha = 'ff') {
+  const rgb = hex.replace('#', '');
+  return (alpha + rgb.slice(4, 6) + rgb.slice(2, 4) + rgb.slice(0, 2)).toLowerCase();
+}
+
+// KML ждёт dateTime по XML-схеме, доли секунды из расчёта здесь лишние.
+function kmlTime(point) {
+  const parsed = Date.parse(point.time || '');
+  if (!Number.isFinite(parsed)) return '';
+  return new Date(parsed).toISOString().replace(/\.\d+Z$/, 'Z');
+}
+
+function kmlCoord(point) {
+  return `${point.lon.toFixed(8)},${point.lat.toFixed(8)},${point.alt.toFixed(1)}`;
+}
+
+// Тот же текст, что и в балуне на карте: Google Earth рендерит его как HTML.
+function kmlDescription(points, index, header = '') {
+  const p = points[index];
+  const body = (header ? `${header}<br>` : '')
+    + `Фаза: <b>${PHASE_TITLES[p.phase] || p.phase}</b><br>`
+    + `Высота: <b>${Math.round(p.alt)} м</b><br>`
+    + balloonCoordinates(p.lat, p.lon)
+    + balloonMotion(points, index)
+    + `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`;
+  return `<![CDATA[${body.replace(/]]>/g, ']]&gt;')}]]>`;
+}
+
+function kmlPlacemark(points, index, { name, styleId, header = '' }) {
+  const stamp = kmlTime(points[index]);
+  return '    <Placemark>\n'
+    + `      <name>${xmlEscape(name)}</name>\n`
+    + `      <description>${kmlDescription(points, index, header)}</description>\n`
+    + `      <styleUrl>#${styleId}</styleUrl>\n`
+    + (stamp ? `      <TimeStamp><when>${stamp}</when></TimeStamp>\n` : '')
+    + '      <Point>\n'
+    + '        <altitudeMode>absolute</altitudeMode>\n'
+    + `        <coordinates>${kmlCoord(points[index])}</coordinates>\n`
+    + '      </Point>\n'
+    + '    </Placemark>\n';
+}
+
+function kmlStyles() {
+  const phaseStyles = ['ascent', 'float', 'descent'].map(phase => {
+    const color = kmlColor(phaseColor(phase));
+    return `  <Style id="line-${phase}">\n`
+      + `    <LineStyle><color>${color}</color><width>3.5</width></LineStyle>\n`
+      + `    <PolyStyle><color>${kmlColor(phaseColor(phase), '33')}</color></PolyStyle>\n`
+      + '  </Style>\n'
+      + `  <Style id="dot-${phase}">\n`
+      + `    <IconStyle><color>${color}</color><scale>0.7</scale>`
+      + `<Icon><href>${KML_ICON_DOT}</href></Icon></IconStyle>\n`
+      + '    <LabelStyle><scale>0</scale></LabelStyle>\n'
+      + '  </Style>\n';
+  }).join('');
+
+  const pinStyle = (id, href) => `  <Style id="${id}">\n`
+    + `    <IconStyle><scale>1.1</scale><Icon><href>${href}</href></Icon>`
+    + '<hotSpot x="32" y="1" xunits="pixels" yunits="pixels"/></IconStyle>\n'
+    + '  </Style>\n';
+
+  return phaseStyles
+    + pinStyle('pin-start', KML_ICON_START)
+    + pinStyle('pin-burst', KML_ICON_BURST)
+    + pinStyle('pin-finish', KML_ICON_FINISH);
+}
+
+function buildTrajectoryKml(points) {
+  const last = points[points.length - 1];
+  let burstIndex = -1;
+  for (let k = points.length - 1; k >= 0; k--) {
+    if (points[k].phase === 'ascent') { burstIndex = k; break; }
+  }
+
+  // ── Линия трека, разбитая по фазам ──
+  const lines = phaseSegments(points).map(segment =>
+    '    <Placemark>\n'
+    + `      <name>${xmlEscape(PHASE_TITLES[segment.phase] || segment.phase)}</name>\n`
+    + `      <styleUrl>#line-${segment.phase}</styleUrl>\n`
+    + '      <LineString>\n'
+    + '        <extrude>1</extrude>\n'
+    + '        <tessellate>1</tessellate>\n'
+    + '        <altitudeMode>absolute</altitudeMode>\n'
+    + `        <coordinates>${segment.points.map(kmlCoord).join(' ')}</coordinates>\n`
+    + '      </LineString>\n'
+    + '    </Placemark>\n'
+  ).join('');
+
+  // ── Ключевые точки ──
+  let keyPoints = kmlPlacemark(points, 0, { name: 'Старт', styleId: 'pin-start' });
+  if (burstIndex >= 0 && burstIndex !== points.length - 1) {
+    keyPoints += kmlPlacemark(points, burstIndex, { name: 'Точка разрыва', styleId: 'pin-burst' });
+  }
+  keyPoints += kmlPlacemark(points, points.length - 1, { name: 'Точка финиша', styleId: 'pin-finish' });
+
+  // ── Промежуточные точки: тот же шаг, что и на карте ──
+  const firstTime = Date.parse(points[0].time || '');
+  const step = 5;
+  let marks = '';
+  for (let k = step; k < points.length - step; k += step) {
+    marks += kmlPlacemark(points, k, {
+      name: `T+${flightSecond(points[k], firstTime, k)} с`,
+      styleId: `dot-${points[k].phase}`,
+      header: 'Промежуточная точка',
+    });
+  }
+
+  // ── Трек с временем: Google Earth умеет проигрывать полёт ──
+  const track = points.every(p => kmlTime(p))
+    ? '    <Placemark>\n'
+      + '      <name>Анимация полёта</name>\n'
+      + '      <styleUrl>#line-ascent</styleUrl>\n'
+      + '      <gx:Track>\n'
+      + '        <altitudeMode>absolute</altitudeMode>\n'
+      + points.map(p => `        <when>${kmlTime(p)}</when>\n`).join('')
+      + points.map(p => `        <gx:coord>${kmlCoord(p).replace(/,/g, ' ')}</gx:coord>\n`).join('')
+      + '      </gx:Track>\n'
+      + '    </Placemark>\n'
+    : '';
+
+  const title = `Траектория зонда ${(points[0].time || '').replace('T', ' ').replace('Z', '')} UTC`;
+  const summary = `Точек: ${points.length} · финиш ${last.lat.toFixed(4)}, ${last.lon.toFixed(4)}`;
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'
+    + '<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">\n'
+    + '<Document>\n'
+    + `  <name>${xmlEscape(title)}</name>\n`
+    + `  <description>${xmlEscape(summary)}</description>\n`
+    + kmlStyles()
+    + '  <Folder>\n    <name>Траектория</name>\n' + lines + '  </Folder>\n'
+    + '  <Folder>\n    <name>Ключевые точки</name>\n' + keyPoints + '  </Folder>\n'
+    + '  <Folder>\n    <name>Промежуточные точки</name>\n    <open>0</open>\n' + marks + '  </Folder>\n'
+    + (track ? '  <Folder>\n    <name>Анимация</name>\n    <visibility>0</visibility>\n' + track + '  </Folder>\n' : '')
+    + '</Document>\n</kml>\n';
+}
+
+function downloadTrajectoryKml() {
+  if (!lastTrajectory.length) {
+    showStatus('Сначала рассчитайте траекторию', true);
+    return;
+  }
+
+  downloadBlob(
+    new Blob([buildTrajectoryKml(lastTrajectory)], {
+      type: 'application/vnd.google-earth.kml+xml;charset=utf-8;',
+    }),
+    `trajectory_${exportStamp()}.kml`,
+  );
+}
+
+// Полностью кастомный макет всплывающего окна: тёмная карточка
+// с кнопкой закрытия и «хвостиком», указывающим на точку.
+function makeBalloonLayout() {
+  const Layout = ymaps.templateLayoutFactory.createClass(
+    '<div class="ymap-balloon">' +
+      '<button type="button" class="ymap-balloon__close">&times;</button>' +
+      '<div class="popup-title">$[properties.balloonContentHeader]</div>' +
+      '<div class="popup-row">$[properties.balloonContentBody]</div>' +
+      '<div class="ymap-balloon__tail"></div>' +
+    '</div>',
+    {
+      build: function () {
+        Layout.superclass.build.call(this);
+        this._el = this.getParentElement().querySelector('.ymap-balloon');
+        this._onClose = e => {
+          e.preventDefault();
+          this.events.fire('userclose');
+        };
+        this._el.querySelector('.ymap-balloon__close')
+          .addEventListener('click', this._onClose);
+        // Ставим балун по центру над точкой
+        this._el.style.left = -(this._el.offsetWidth / 2) + 'px';
+        this._el.style.top = -(this._el.offsetHeight + 18) + 'px';
+      },
+      clear: function () {
+        this._el.querySelector('.ymap-balloon__close')
+          .removeEventListener('click', this._onClose);
+        Layout.superclass.clear.call(this);
+      },
+      // Область балуна — чтобы карта сама сдвигалась, если он не влезает
+      getShape: function () {
+        if (!this._el) return Layout.superclass.getShape.call(this);
+        const w = this._el.offsetWidth, h = this._el.offsetHeight;
+        return new ymaps.shape.Rectangle(
+          new ymaps.geometry.pixel.Rectangle([[-w / 2, -(h + 18)], [w / 2, -18]])
+        );
+      },
+    }
+  );
+  return Layout;
+}
+
 // ─────────────── Работа с маркерами ─────────────
-function makeBalloonEl() {
-  const el = document.createElement('div');
-  el.className = 'balloon-marker';
-  el.innerHTML = '<div class="start-dot"></div>';
-  return el;
+// Маркер-точка как встроенный SVG: цветной кружок с белой каймой.
+// Рендерится прямо на canvas карты, не зависит от внешнего CSS.
+// size — диаметр в пикселях: ~22 для ключевых точек, ~11 для промежуточных.
+function dotIcon(fill, stroke, size = 22) {
+  const c = size / 2;
+  const big = size >= 18;
+  const r = c - (big ? 3 : 1.5);
+  const sw = big ? 2.5 : 1.5;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
+      `<circle cx="${c}" cy="${c}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${sw}"/>` +
+    `</svg>`;
+  return {
+    iconLayout: 'default#image',
+    iconImageHref: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg),
+    iconImageSize: [size, size],
+    iconImageOffset: [-c, -c],
+    // Свой балун вместо стандартного белого
+    balloonLayout: balloonLayout,
+    balloonPanelMaxMapArea: 0,
+  };
 }
 
-function makeFlagEl() {
-  const el = document.createElement('div');
-  el.className = 'flag-marker';
-  el.innerHTML = '<div class="finish-dot"></div>';
-  return el;
-}
-
-function makeBurstEl() {
-  const el = document.createElement('div');
-  el.className = 'burst-marker';
-  el.innerHTML = '<div class="burst-dot"></div>';
-  return el;
-}
-
-// ─────────────── Нажатие на карту задаёт старт ──
-map.on('click', e => {
-  // Игнорируем нажатия по пользовательскому маркеру
-  if (e.originalEvent.target.closest('.balloon-marker, .flag-marker, .burst-marker')) return;
-
-  // Нажатия по точкам траектории обрабатываются отдельно
-  const features = map.queryRenderedFeatures(e.point, { layers: ['traj-dots'] });
-  if (features.length > 0) return;
-
-  const lat = +e.lngLat.lat.toFixed(4);
-  const lon = +e.lngLat.lng.toFixed(4);
-  document.getElementById('inp-lat').value = lat;
-  document.getElementById('inp-lon').value = lon;
-  placeStartMarker(lat, lon);
-});
-
+// ─────────────── Маркер точки старта ────────────
 function placeStartMarker(lat, lon) {
-  if (startMarker) startMarker.remove();
-
-  const el = makeBalloonEl();
-
-  const popup = new maplibregl.Popup({ offset: [0, -14], closeButton: true })
-    .setHTML(
-      `<div class="popup-title">Точка старта</div>
-       <div class="popup-row">Широта:  <span>${lat.toFixed(4)}</span></div>
-       <div class="popup-row">Долгота: <span>${lon.toFixed(4)}</span></div>`
-    );
-
-  startMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
-    .setLngLat([lon, lat])
-    .setPopup(popup)
-    .addTo(map);
+  if (startMarker) map.geoObjects.remove(startMarker);
+  startMarker = new ymaps.Placemark([lat, lon], {
+    balloonContentHeader: 'Точка старта',
+    balloonContentBody: balloonCoordinates(lat, lon),
+  }, dotIcon('#3f9b58', '#ffffff'));
+  map.geoObjects.add(startMarker);
 }
 
 // ─────────────── Приветственное окно ────────────
@@ -1031,8 +1259,8 @@ function applyPredictQueryParams() {
   }
 
   if (Number.isFinite(lat) && Number.isFinite(lon)) {
-    placeStartMarker(lat, lon);
-    map.jumpTo({ center: [lon, lat], zoom: 8 });
+    // Карты ещё нет — маркер поставит init().
+    pendingStart = { lat, lon };
     return true;
   }
 
@@ -1097,6 +1325,102 @@ function phaseColor(phase) {
   if (phase === 'descent') return '#df715f';
   return '#87959d';
 }
+
+// ─────────────── Пересчёт координат (СК-42) ──────
+const ELL_WGS84 = { a: 6378137.0,  f: 1 / 298.257223563 };
+const ELL_KRASS = { a: 6378245.0,  f: 1 / 298.3 };
+
+// Параметры перехода СК-42 → WGS-84 (ГОСТ Р 51794-2001)
+const SK42_TO_WGS = {
+  dx: 23.92, dy: -141.27, dz: -80.9,
+  wx: 0, wy: -0.35, wz: -0.79,   // угловые секунды
+  m: -0.22e-6
+};
+
+function geodeticToEcef(latDeg, lonDeg, h, ell) {
+  const e2 = ell.f * (2 - ell.f);
+  const B = latDeg * Math.PI / 180, L = lonDeg * Math.PI / 180;
+  const N = ell.a / Math.sqrt(1 - e2 * Math.sin(B) ** 2);
+  return [
+    (N + h) * Math.cos(B) * Math.cos(L),
+    (N + h) * Math.cos(B) * Math.sin(L),
+    (N * (1 - e2) + h) * Math.sin(B),
+  ];
+}
+
+function ecefToGeodetic(X, Y, Z, ell) {
+  const e2 = ell.f * (2 - ell.f);
+  const L = Math.atan2(Y, X);
+  const p = Math.hypot(X, Y);
+  let B = Math.atan2(Z, p * (1 - e2)), h = 0;
+  for (let i = 0; i < 8; i++) {
+    const N = ell.a / Math.sqrt(1 - e2 * Math.sin(B) ** 2);
+    h = p / Math.cos(B) - N;
+    B = Math.atan2(Z, p * (1 - e2 * N / (N + h)));
+  }
+  return [B * 180 / Math.PI, L * 180 / Math.PI, h];
+}
+
+// Обратное преобразование Гельмерта: WGS-84 → СК-42
+function wgs84ToSk42Geodetic(latDeg, lonDeg, h = 0) {
+  const S = Math.PI / 180 / 3600;
+  const wx = SK42_TO_WGS.wx * S, wy = SK42_TO_WGS.wy * S, wz = SK42_TO_WGS.wz * S;
+  const [X, Y, Z] = geodeticToEcef(latDeg, lonDeg, h, ELL_WGS84);
+  const k = 1 / (1 + SK42_TO_WGS.m);
+  const x = (X - SK42_TO_WGS.dx) * k;
+  const y = (Y - SK42_TO_WGS.dy) * k;
+  const z = (Z - SK42_TO_WGS.dz) * k;
+  return ecefToGeodetic(
+    x - wz * y + wy * z,
+    wz * x + y - wx * z,
+    -wy * x + wx * y + z,
+    ELL_KRASS
+  );
+}
+
+// Поперечная проекция Меркатора (общая для Гаусса-Крюгера и UTM)
+function transverseMercator(latDeg, lonDeg, lon0Deg, k0, ell) {
+  const e2 = ell.f * (2 - ell.f);
+  const ep2 = e2 / (1 - e2);
+  const B = latDeg * Math.PI / 180;
+  let dl = lonDeg - lon0Deg;
+  if (dl > 180) dl -= 360;
+  if (dl < -180) dl += 360;
+  const l = dl * Math.PI / 180;
+  const N = ell.a / Math.sqrt(1 - e2 * Math.sin(B) ** 2);
+  const T = Math.tan(B) ** 2;
+  const C = ep2 * Math.cos(B) ** 2;
+  const A = Math.cos(B) * l;
+  const M = ell.a * (
+    (1 - e2 / 4 - 3 * e2 ** 2 / 64 - 5 * e2 ** 3 / 256) * B
+    - (3 * e2 / 8 + 3 * e2 ** 2 / 32 + 45 * e2 ** 3 / 1024) * Math.sin(2 * B)
+    + (15 * e2 ** 2 / 256 + 45 * e2 ** 3 / 1024) * Math.sin(4 * B)
+    - (35 * e2 ** 3 / 3072) * Math.sin(6 * B)
+  );
+  const northing = k0 * (M + N * Math.tan(B) * (
+    A ** 2 / 2
+    + (5 - T + 9 * C + 4 * C ** 2) * A ** 4 / 24
+    + (61 - 58 * T + T ** 2 + 600 * C - 330 * ep2) * A ** 6 / 720
+  ));
+  const easting = k0 * N * (
+    A
+    + (1 - T + C) * A ** 3 / 6
+    + (5 - 18 * T + T ** 2 + 72 * C - 58 * ep2) * A ** 5 / 120
+  );
+  return { easting, northing };
+}
+
+// СК-42 / Гаусса-Крюгера, 6-градусные зоны
+function toSk42Gk(latWgs, lonWgs) {
+  const [lat, lon] = wgs84ToSk42Geodetic(latWgs, lonWgs, 0);
+  const east = ((lon % 360) + 360) % 360;   // долгота 0…360° к востоку от Гринвича
+  const zone = Math.floor(east / 6) + 1;    // зоны СК-42 нумеруются от Гринвича
+  const lon0 = zone * 6 - 3;
+  const { easting, northing } = transverseMercator(lat, east, lon0, 1, ELL_KRASS);
+  return { zone, x: northing, y: zone * 1e6 + 500000 + easting };
+}
+
+const fmtMeters = v => Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '\u202F');
 
 // ─────────────── Опрос фоновой задачи ───────────
 const POLL_INTERVAL_MS = 1000;
@@ -1218,95 +1542,97 @@ async function runPrediction() {
   }
 }
 
-// ─────────────── Отрисовка траектории ───────────
-function drawTrajectory(points, startLat, startLon) {
-  if (!points || points.length === 0) return;
-  lastTrajectory = points;
-  document.getElementById('btn-export').style.display = 'block';
-
-  // ── Сегменты ──
-  const lineFeatures = [];
+// Режем трек на отрезки по фазам; отрезок захватывает первую точку следующей
+// фазы, чтобы линия не рвалась на границе.
+function phaseSegments(points) {
+  const segments = [];
   let i = 0;
   while (i < points.length - 1) {
     const phase = points[i].phase;
-    const coords = [[points[i].lon, points[i].lat]];
     let j = i + 1;
-    while (j < points.length && points[j].phase === phase) {
-      coords.push([points[j].lon, points[j].lat]);
-      j++;
-    }
-    if (j < points.length) coords.push([points[j].lon, points[j].lat]);
-    lineFeatures.push({
-      type: 'Feature',
-      properties: { color: phaseColor(phase), phase },
-      geometry: { type: 'LineString', coordinates: coords },
-    });
+    while (j < points.length && points[j].phase === phase) j++;
+    segments.push({ phase, points: points.slice(i, Math.min(j + 1, points.length)) });
     i = j;
   }
+  return segments;
+}
 
-  // ── Точки маршрута через каждые 30 минут, то есть 30 шагов ──
-  const dotFeatures = [];
+// ─────────────── Отрисовка траектории ───────────
+function drawTrajectory(points, startLat, startLon) {
+  if (!points || !points.length) return;
+  lastTrajectory = points;
+  document.getElementById('btn-export').style.display = 'block';
+  document.getElementById('btn-export-kml').style.display = 'block';
+
+  // ── Отрезки по фазам (координаты [широта, долгота]) ──
+  phaseSegments(points).forEach(segment => {
+    trajCollection.add(new ymaps.Polyline(
+      segment.points.map(p => [p.lat, p.lon]),
+      {},
+      {
+        strokeColor: phaseColor(segment.phase),
+        strokeWidth: 3.5,
+        strokeOpacity: 0.88,
+      },
+    ));
+  });
+
+  // ── Промежуточные точки (каждая 5-я) с балуном ──
   const step = 5;
   for (let k = step; k < points.length - step; k += step) {
     const p = points[k];
-    dotFeatures.push({
-      type: 'Feature',
-      properties: { color: phaseColor(p.phase), alt: p.alt, time: p.time },
-      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-    });
+    trajCollection.add(new ymaps.Placemark([p.lat, p.lon], {
+      balloonContentHeader: 'Промежуточная точка',
+      balloonContentBody:
+        `Высота: <b>${Math.round(p.alt)} м</b><br>` +
+        balloonCoordinates(p.lat, p.lon) +
+        balloonMotion(points, k) +
+        `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
+    }, dotIcon(phaseColor(p.phase), '#ffffff', 16)));
   }
 
-  if (mapReady) {
-    map.getSource('traj-line-src').setData({ type: 'FeatureCollection', features: lineFeatures });
-    map.getSource('traj-dots-src').setData({ type: 'FeatureCollection', features: dotFeatures });
+  // ── Маркер разрыва (последняя точка подъёма) ──
+  let burstIdx = -1;
+  for (let k = points.length - 1; k >= 0; k--) {
+    if (points[k].phase === 'ascent') { burstIdx = k; break; }
   }
-
-  // ── Маркер разрыва в последней точке подъёма ──
-  const burstPt = [...points].reverse().find(p => p.phase === 'ascent');
-  if (burstMarker) burstMarker.remove();
+  const burstPt = burstIdx >= 0 ? points[burstIdx] : null;
+  if (burstMarker) map.geoObjects.remove(burstMarker);
   if (burstPt) {
-    const burstEl = makeBurstEl();
-    const burstPopup = new maplibregl.Popup({ offset: [0, -14], closeButton: true })
-      .setHTML(
-        `<div class="popup-title">Точка взрыва</div>
-         <div class="popup-row">Высота: <span>${Math.round(burstPt.alt)} м</span></div>
-         <div class="popup-row">Широта: <span>${burstPt.lat.toFixed(4)}</span></div>
-         <div class="popup-row">Долгота: <span>${burstPt.lon.toFixed(4)}</span></div>
-         <div class="popup-row">Время: <span>${(burstPt.time||'').replace('T',' ').replace('Z','')} UTC</span></div>`
-      );
-    burstMarker = new maplibregl.Marker({ element: burstEl, anchor: 'center' })
-      .setLngLat([burstPt.lon, burstPt.lat])
-      .setPopup(burstPopup)
-      .addTo(map);
+    burstMarker = new ymaps.Placemark([burstPt.lat, burstPt.lon], {
+      balloonContentHeader: 'Точка разрыва',
+      balloonContentBody:
+        `Высота: <b>${Math.round(burstPt.alt)} м</b><br>` +
+        balloonCoordinates(burstPt.lat, burstPt.lon) +
+        balloonMotion(points, burstIdx) +
+        `Время: <b>${(burstPt.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
+    }, dotIcon('#ffffff', '#111111'));
+    map.geoObjects.add(burstMarker);
   }
 
-  // ── Маркер приземления ──
+  // ── Маркер финиша ──
   const last = points[points.length - 1];
-  if (landMarker) landMarker.remove();
-  const flagEl = makeFlagEl();
-  const landPopup = new maplibregl.Popup({ offset: [0, -14], closeButton: true })
-    .setHTML(
-      `<div class="popup-title">Точка финиша</div>
-       <div class="popup-row">Широта:  <span>${last.lat.toFixed(4)}</span></div>
-       <div class="popup-row">Долгота: <span>${last.lon.toFixed(4)}</span></div>
-       <div class="popup-row">Время:   <span>${(last.time||'').replace('T',' ').replace('Z','')} UTC</span></div>`
-    );
-  landMarker = new maplibregl.Marker({ element: flagEl, anchor: 'center' })
-    .setLngLat([last.lon, last.lat])
-    .setPopup(landPopup)
-    .addTo(map);
+  if (landMarker) map.geoObjects.remove(landMarker);
+  landMarker = new ymaps.Placemark([last.lat, last.lon], {
+    balloonContentHeader: 'Точка финиша',
+    balloonContentBody:
+      balloonCoordinates(last.lat, last.lon) +
+      balloonMotion(points, points.length - 1) +
+      `<br>Время: <b>${(last.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
+  }, dotIcon('#df715f', '#ffffff'));
+  map.geoObjects.add(landMarker);
 
-  // ── Показываем координаты финиша в меню ──
+  // ── Координаты финиша в меню ──
   document.getElementById('res-lat').textContent = last.lat.toFixed(4);
   document.getElementById('res-lon').textContent = last.lon.toFixed(4);
   document.getElementById('result-section').style.display = 'block';
 
-  // ── Подгоняем границы карты ──
-  const lngs = points.map(p => p.lon);
+  // ── Подгоняем границы карты под весь трек ──
   const lats = points.map(p => p.lat);
-  map.fitBounds(
-    [[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]],
-    { padding: 60, duration: 1000 }
+  const lons = points.map(p => p.lon);
+  map.setBounds(
+    [[Math.min(...lats), Math.min(...lons)], [Math.max(...lats), Math.max(...lons)]],
+    { checkZoomRange: true, zoomMargin: 40, duration: 600 },
   );
 
   document.getElementById('legend').classList.add('show');
@@ -1315,13 +1641,15 @@ function drawTrajectory(points, startLat, startLon) {
 // ─────────────── Очистка ─────────────────────────
 function clearTrajectory(resetResult = true) {
   if (mapReady) {
-    map.getSource('traj-line-src')?.setData({ type: 'FeatureCollection', features: [] });
-    map.getSource('traj-dots-src')?.setData({ type: 'FeatureCollection', features: [] });
+    trajCollection.removeAll();
+    if (landMarker)  { map.geoObjects.remove(landMarker);  }
+    if (burstMarker) { map.geoObjects.remove(burstMarker); }
   }
-  if (landMarker)  { landMarker.remove();  landMarker  = null; }
-  if (burstMarker) { burstMarker.remove(); burstMarker = null; }
+  landMarker  = null;
+  burstMarker = null;
   lastTrajectory = [];
   document.getElementById('btn-export').style.display = 'none';
+  document.getElementById('btn-export-kml').style.display = 'none';
   if (resetResult) {
     document.getElementById('res-lat').textContent = '—';
     document.getElementById('res-lon').textContent = '—';
@@ -1352,11 +1680,6 @@ document.getElementById('inp-float-dur')?.addEventListener('input', syncFloatDur
 document.getElementById('inp-float-dur-unit')?.addEventListener('change', syncFloatDurationConversion);
 toggleFloatDuration();
 initResponsiveMenu();
-if (hasPredictParams) {
-  window.addEventListener('load', () => {
-    runPrediction();
-  }, { once: true });
-}
 </script>
 </body>
 </html>

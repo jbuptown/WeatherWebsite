@@ -1,10 +1,11 @@
 ﻿# WeatherWebsite — Balloon Trajectory Predictor
 
-Веб-приложение для расчёта траектории полёта метеозонда на основе данных NOAA GFS из AWS Open Data. Построено на Django + MapLibre GL JS.
+Веб-приложение для расчёта траектории полёта метеозонда на основе данных NOAA GFS из AWS Open Data. Построено на Django + Yandex Maps JS API.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-4.x-green?logo=django&logoColor=white)
-![MapLibre](https://img.shields.io/badge/MapLibre_GL_JS-4.5-orange)
+![Yandex Maps](https://img.shields.io/badge/Yandex_Maps_JS_API-2.1-red)
+![Queue](https://img.shields.io/badge/Queue-django--rq_+_Redis-critical)
 ![Data](https://img.shields.io/badge/Wind_Data-NOAA_GFS_on_AWS-blue)
 
 ---
@@ -16,8 +17,10 @@
 - Реальные данные ветра NOAA GFS на всех высотах (1000–1 гПа в зависимости от сетки)
 - Выбор сетки расчёта: приближенная 1.0° или точная 0.5°
 - Цветная траектория по фазам: подъём / плавание / спуск
-- Попапы с координатами старта и финиша
-- Работает в России без VPN (OpenStreetMap + jsDelivr CDN)
+- Балуны с координатами: десятичные градусы, DMS и СК-42 (Гаусса-Крюгера), скорость и направление сноса
+- Экспорт результата в Excel (CSV) и KML для Google Earth
+- Расчёт идёт в фоновой очереди, браузер опрашивает статус и показывает прогресс
+- Работает в России без VPN (Яндекс.Карты)
 
 ---
 
@@ -37,6 +40,15 @@ python manage.py migrate
 python manage.py runserver
 ```
 
+Расчёт выполняется в фоновой очереди, поэтому нужен запущенный Redis
+(адрес и порт задаются переменными `REDIS_HOST` / `REDIS_PORT`, по умолчанию
+`127.0.0.1:6379`) и хотя бы один обработчик — в отдельном терминале:
+
+```bash
+python manage.py rqworker default
+# Windows: python manage.py rqworker default --worker-class rq.SimpleWorker
+```
+
 Откройте http://127.0.0.1:8000
 
 ---
@@ -46,8 +58,9 @@ python manage.py runserver
 | Слой | Технология |
 |---|---|
 | Backend | Django (Python) |
-| Frontend | MapLibre GL JS 4.5 |
-| Карта | OpenStreetMap |
+| Очередь | django-rq + Redis |
+| Frontend | Yandex Maps JS API 2.1 |
+| Карта | Яндекс.Карты |
 | Данные ветра | NOAA GFS AWS Open Data |
 | БД | SQLite |
 
@@ -57,12 +70,17 @@ python manage.py runserver
 
 | Метод | URL | Описание |
 |---|---|---|
-| `POST` | `/api/predict/` | Рассчитать траекторию |
+| `POST` | `/api/predict/start/` | Поставить расчёт в очередь, вернуть `task_id` |
+| `GET` | `/api/predict/status/<task_id>/` | Статус задачи, а по готовности — результат |
+| `POST` | `/api/predict/` | Синхронный расчёт (без очереди) |
 | `GET` | `/api/points/` | Список точек на карте |
 | `POST` | `/api/points/add/` | Добавить точку |
 | `DELETE` | `/api/points/<id>/delete/` | Удалить точку |
 
-### Параметры `/api/predict/`
+Интерфейс использует пару `start` + `status`: длинный расчёт не упирается в
+таймаут прокси. Синхронный `/api/predict/` оставлен для скриптов.
+
+### Параметры `/api/predict/start/` и `/api/predict/`
 
 ```json
 {
