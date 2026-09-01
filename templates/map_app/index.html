@@ -343,7 +343,7 @@
     /* ── Легенда ── */
     #legend {
       position: fixed;
-      bottom: 24px; right: 24px;
+      bottom: 65px; right: 24px;
       z-index: 100;
       background: #fff;
       border-radius: 12px;
@@ -656,7 +656,7 @@
   <div class="field-row">
     <label>Профиль полёта</label>
     <div class="select-wrap">
-      <select id="inp-profile" onchange="toggleFloatDuration()">
+      <select id="inp-profile" onchange="onProfileChange()">
         <option value="standard">Стандартный</option>
         <option value="float_profile">Дрейф</option>
       </select>
@@ -712,7 +712,7 @@
 <!-- Легенда фаз -->
 <div id="legend">
   <div class="leg-item"><div class="leg-dot" style="background:#3f9b58"></div>Подъём</div>
-  <div class="leg-item"><div class="leg-dot" style="background:#ff7629"></div>Дрейф</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#4f8ade"></div>Дрейф</div>
   <div class="leg-item"><div class="leg-dot" style="background:#df715f"></div>Спуск</div>
 </div>
 
@@ -736,7 +736,7 @@ function init() {
         yandexMapDisablePoiInteractivity: true,
         suppressMapOpenBlock: true,
         maxZoom: 14,
-        minZoom: 7
+        minZoom: 3
     });
     trajCollection = new ymaps.GeoObjectCollection();
     map.geoObjects.add(trajCollection);
@@ -1268,7 +1268,13 @@ function applyPredictQueryParams() {
 }
 
 function closeBubble() { document.getElementById('bubble').style.display = 'none'; }
-
+function onProfileChange() {
+  const isFloat = document.getElementById('inp-profile').value === 'float_profile';
+  const from = document.getElementById(isFloat ? 'inp-burst' : 'inp-float-alt');
+  const to   = document.getElementById(isFloat ? 'inp-float-alt' : 'inp-burst');
+  to.value = from.value;          // значение переезжает в поле, которое сейчас покажем
+  toggleFloatDuration();
+}
 // ─────────────── Переключатель времени дрейфа ───
 function toggleFloatDuration() {
   const profile = document.getElementById('inp-profile').value;
@@ -1321,7 +1327,7 @@ function initResponsiveMenu() {
 // ─────────────── Цвета фаз ──────────────────────
 function phaseColor(phase) {
   if (phase === 'ascent')  return '#3f9b58';
-  if (phase === 'float')   return '#ff7629';
+  if (phase === 'float')   return '#4f8ade';
   if (phase === 'descent') return '#df715f';
   return '#87959d';
 }
