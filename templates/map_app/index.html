@@ -209,7 +209,26 @@
       text-align: center;
       font-weight: 500;
     }
-
+    /* ── Поля координат старта в виде плашек ── */
+    .coord-inputs { display: flex; gap: 6px; }
+    .field-row .coord-inputs input {
+      flex: 1;
+      min-width: 0;
+      background: #f5f0ff;
+      border-color: #d8c8ff;
+      color: #5c35cc;
+      text-align: center;
+      font-weight: 500;
+    }
+    .field-row .coord-inputs input::placeholder {
+      color: #a08fd8;
+      font-weight: 400;
+    }
+    .field-row .coord-inputs input:focus {
+      border-color: #7c4dff;
+      background: #fff;
+    }
+    .field-row .coord-inputs input.input-error { border-color: #ff4d35; }
     /* ── Кнопки ── */
     #btn-calc {
       margin-top: 14px;
@@ -487,6 +506,17 @@
       border-radius: 6px;
       color: var(--orange-soft);
     }
+    .field-row .coord-inputs input {
+      background: #241b13;
+      border-color: var(--orange-dark);
+      color: var(--orange-soft);
+    }
+    .field-row .coord-inputs input::placeholder { color: #8a6a52; }
+    .field-row .coord-inputs input:focus {
+      border-color: var(--orange);
+      background: #1a1a1a;
+    }
+    .field-row .coord-inputs input.input-error { border-color: #ff4d35; }
     #btn-calc {
       border-radius: 6px;
       background: var(--orange);
@@ -610,12 +640,13 @@
   </div>
 
   <div class="field-row">
-    <label>Широта</label>
-    <input id="inp-lat" type="text" inputmode="decimal" placeholder="55.7558 или 55,7558" />
-  </div>
-  <div class="field-row">
-    <label>Долгота</label>
-    <input id="inp-lon" type="text" inputmode="decimal" placeholder="37.6176 или 37,6176" />
+    <label>Координаты старта</label>
+    <div class="coord-inputs">
+      <input id="inp-lat" type="text" inputmode="decimal"
+             placeholder="Широта" title="Широта, например 55.7558 или 55,7558" />
+      <input id="inp-lon" type="text" inputmode="decimal"
+             placeholder="Долгота" title="Долгота, например 37.6176 или 37,6176" />
+    </div>
   </div>
   <div class="field-row">
     <label>Высота запуска (м)</label>
@@ -1506,7 +1537,7 @@ async function runPrediction() {
     const forecastSlices = Math.ceil(estimatedHours / 3) + 2;
     const modeLabel = body.gfs_mode === 'full' ? 'точная сетка 0.5°' : 'приближенная сетка 1.0°';
     document.getElementById('loading-msg').textContent = estimatedHours > 12
-      ? `Медленный полёт: около ${Math.round(estimatedHours)} ч · ${modeLabel} · подготавливаю до ${forecastSlices} прогнозов GFS…`
+      ? `Расчет · подготавливаю до ${forecastSlices} прогнозов GFS…`
       : `Загружаю данные ветра GFS · ${modeLabel}…`;
 
     // Сообщение, собранное выше, служит основой для строки прогресса.
