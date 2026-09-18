@@ -437,6 +437,7 @@ class GFSDataset:
         self.run_dt   = run_dt
         self.fxx_list = sorted(fxx_list)
         self.grids    = grids           # {fxx: parsed_grid}
+        self._heights_memo = None       # (ключ, результат) последнего запроса
 
     def _time_bounds(self, dt_utc: datetime) -> tuple:
         hours = (dt_utc - self.run_dt).total_seconds() / 3600.0
@@ -469,50 +470,79 @@ class GFSDataset:
             v1 = _bilinear_grid(a1, g1['lats'], g1['lons'], lat, lon)
         return v0 * (1 - tf) + v1 * tf
 
-    def get_uv(self, lat: float, lon: float,
-               dt_utc: datetime, alt_m: float) -> tuple:
-        """Interpolate time, latitude and longitude before altitude."""
+    def _level_heights(self, lat: float, lon: float, dt_utc: datetime):
+        """Таблица (высота уровня, его давление) для точки и момента времени.
+
+        Зависит от точки и времени, но не от высоты, а подряд идущие вызовы
+        часто приходят с одинаковыми аргументами: точку сначала записывает
+        append_point, а следом с теми же координатами стартует РК4. Поэтому
+        держим результат последнего запроса.
+        """
+        memo_key = (lat, lon, dt_utc)
+        if self._heights_memo is not None and self._heights_memo[0] == memo_key:
+            return self._heights_memo[1]
+
         fxx0, fxx1, tf = self._time_bounds(dt_utc)
         g0 = self.grids[fxx0]
         g1 = self.grids[fxx1]
         levels = sorted(set(g0['u']) & set(g0['v']) & set(g1['u']) & set(g1['v']))
-        if not levels:
-            return 0.0, 0.0
-
-        heights = [
+        heights = sorted(
             (self._interp_level(fxx0, fxx1, tf, level, 'hgt', lat, lon), level)
             for level in levels
-        ]
-        heights.sort()
-        if len(heights) == 1:
-            level = heights[0][1]
-            return (
-                self._interp_level(fxx0, fxx1, tf, level, 'u', lat, lon),
-                self._interp_level(fxx0, fxx1, tf, level, 'v', lat, lon),
-            )
+        )
 
+        result = ((fxx0, fxx1, tf), heights)
+        self._heights_memo = (memo_key, result)
+        return result
+
+    @staticmethod
+    def _bracket(heights: list, alt_m: float):
+        """Соседние уровни вокруг высоты и доля пути от нижнего к верхнему."""
         idx = 0
         for k, (height, _) in enumerate(heights):
             if height <= alt_m:
                 idx = k
-        if idx >= len(heights) - 1:
-            idx = len(heights) - 2
+        idx = min(idx, len(heights) - 2)
 
-        lower_alt, lower_level = heights[idx]
-        upper_alt, upper_level = heights[idx + 1]
-        if upper_alt != lower_alt:
-            lower_weight = (upper_alt - alt_m) / (upper_alt - lower_alt)
+        lower, upper = heights[idx], heights[idx + 1]
+        if upper[0] == lower[0]:
+            return lower, upper, 0.5
+        return lower, upper, (alt_m - lower[0]) / (upper[0] - lower[0])
+
+    def get_uv(self, lat: float, lon: float,
+               dt_utc: datetime, alt_m: float) -> tuple:
+        """Interpolate time, latitude and longitude before altitude."""
+        (fxx0, fxx1, tf), heights = self._level_heights(lat, lon, dt_utc)
+        if not heights:
+            return 0.0, 0.0
+        if len(heights) == 1:
+            lower = upper = heights[0]
+            weight = 0.0
         else:
-            lower_weight = 0.5
+            lower, upper, weight = self._bracket(heights, alt_m)
 
-        u_lower = self._interp_level(fxx0, fxx1, tf, lower_level, 'u', lat, lon)
-        u_upper = self._interp_level(fxx0, fxx1, tf, upper_level, 'u', lat, lon)
-        v_lower = self._interp_level(fxx0, fxx1, tf, lower_level, 'v', lat, lon)
-        v_upper = self._interp_level(fxx0, fxx1, tf, upper_level, 'v', lat, lon)
+        def blend(variable: str) -> float:
+            below = self._interp_level(fxx0, fxx1, tf, lower[1], variable, lat, lon)
+            if lower is upper:
+                return below
+            above = self._interp_level(fxx0, fxx1, tf, upper[1], variable, lat, lon)
+            return below * (1 - weight) + above * weight
 
-        return (
-            u_lower * lower_weight + u_upper * (1 - lower_weight),
-            v_lower * lower_weight + v_upper * (1 - lower_weight),
+        return blend('u'), blend('v')
+
+    def get_pressure(self, lat: float, lon: float,
+                     dt_utc: datetime, alt_m: float) -> float:
+        """Давление на высоте: обратная задача к геопотенциальным высотам."""
+        _, heights = self._level_heights(lat, lon, dt_utc)
+        if not heights:
+            return altitude_to_pressure(alt_m)
+        if len(heights) == 1:
+            return float(heights[0][1])
+
+        lower, upper, weight = self._bracket(heights, alt_m)
+        # Давление падает с высотой экспоненциально, поэтому смешиваем логарифмы.
+        return math.exp(
+            math.log(lower[1]) + (math.log(upper[1]) - math.log(lower[1])) * weight
         )
 
     def get_ground_altitude(self, lat: float, lon: float,
@@ -664,6 +694,7 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
             'lat': round(cur_lat, 8),
             'lon': round(cur_lon, 8),
             'alt': round(cur_alt, 3),
+            'pressure': round(ds.get_pressure(cur_lat, cur_lon, cur_time, cur_alt), 1),
             'time': format_time(cur_time),
             'phase': point_phase,
         })

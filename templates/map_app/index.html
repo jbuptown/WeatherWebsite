@@ -878,17 +878,21 @@ function formatCsvNumber(value, digits = 6) {
   return Number(value).toFixed(digits).replace('.', ',');
 }
 
-function formatCoordinateDms(value, positiveSuffix, negativeSuffix) {
+function formatIcaoPart(value,degDigits, positiveSuffix, negativeSuffix) {
   if (!Number.isFinite(value)) return '';
   const suffix = value >= 0 ? positiveSuffix : negativeSuffix;
   const absolute = Math.abs(value);
-  const degrees = Math.floor(absolute);
+  let degrees = Math.floor(absolute);
   const minutesFloat = (absolute - degrees) * 60;
-  const minutes = Math.floor(minutesFloat);
-  const seconds = (minutesFloat - minutes) * 60;
-  return `${degrees}° ${String(minutes).padStart(2, '0')}' ${seconds.toFixed(2).replace('.', ',')}" ${suffix}`;
+  let minutes = Math.floor(minutesFloat);
+  if (minutes === 600) { minutes = 0; degrees += 1}
+   return String(degrees).padStart(degDigits, '0')
+    + String(minutes).padStart(2, '0')
+    + suffix;
 }
-
+function formatIcao(lat, lon) {
+  return formatIcaoPart(lat, 2, 'N', 'S') + formatIcaoPart(lon, 3, 'E', 'W');
+}
 // Румбы и стрелки для подписи направления сноса.
 const COMPASS_RHUMBS = [
   'С', 'ССВ', 'СВ', 'ВСВ', 'В', 'ВЮВ', 'ЮВ', 'ЮЮВ',
@@ -898,9 +902,8 @@ const COMPASS_ARROWS = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'];
 
 function formatBearing(bearing) {
   const deg = ((bearing % 360) + 360) % 360;
-  const arrow = COMPASS_ARROWS[Math.round(deg / 45) % 8];
   const rhumb = COMPASS_RHUMBS[Math.round(deg / 22.5) % 16];
-  return `${arrow} ${rhumb}`;
+  return `${deg.toFixed(0)}° ${rhumb}`;
 }
 
 // Горизонтальная скорость и направление сноса: шар летит вместе с ветром,
@@ -926,17 +929,22 @@ function trackMotion(points, index) {
 // и прямоугольные координаты СК-42 (Гаусса-Крюгера).
 function balloonCoordinates(lat, lon) {
   const gk = toSk42Gk(lat, lon);
-  return `Широта: <b>${lat.toFixed(4)}</b><br>Долгота: <b>${lon.toFixed(4)}</b><br>` +
-    `Широта (DMS): <b>${formatCoordinateDms(lat, 'N', 'S')}</b><br>` +
-    `Долгота (DMS): <b>${formatCoordinateDms(lon, 'E', 'W')}</b><br>` +
-    `СК-42, зона ${gk.zone}:<br>` +
-    `X = <b>${fmtMeters(gk.x)}</b><br>Y = <b>${fmtMeters(gk.y)}</b><br>`;
+  return `Широта: <b>${lat.toFixed(4)}</b>&nbsp;&nbsp;Долгота: <b>${lon.toFixed(4)}</b><br>` +
+    `GEO: <b>${formatIcao(lat, lon)}</b></br>`;
+}
+
+// Давление приходит из GFS; у старых расчётов его может не быть.
+function balloonPressure(point) {
+  const value = point && point.pressure;
+  if (!Number.isFinite(value)) return '';
+  return `Давление: <b>${value.toFixed(1)} гПа</b><br>`;
 }
 
 function balloonMotion(points, index) {
   const motion = trackMotion(points, index);
   if (!motion) return '';
-  return `Скорость / Напр.: <b>${motion.speed.toFixed(1)} м/с ${formatBearing(motion.bearing)}</b><br>`;
+  return `Скорость: <b>${motion.speed.toFixed(1)} м/с</b> <b>${(motion.speed * 3.6).toFixed(1)} км/ч</b><br>` +
+         `Азимут: <b>${formatBearing(motion.bearing)}</b><br>`;
 }
 
 function csvCell(value) {
@@ -963,6 +971,7 @@ function downloadTrajectoryCsv() {
     [
       'Секунда полета',
       'Высота, м',
+      'Давление, гПа',
       'Широта (градусы минуты секунды)',
       'Долгота (градусы минуты секунды)',
       'Широта (десятичная)',
@@ -974,6 +983,7 @@ function downloadTrajectoryCsv() {
     rows.push([
       flightSecond(point, firstTime, index),
       formatCsvNumber(point.alt, 1),
+      formatCsvNumber(point.pressure, 1),
       formatCoordinateDms(point.lat, 'N', 'S'),
       formatCoordinateDms(point.lon, 'E', 'W'),
       formatCsvNumber(point.lat, 8),
@@ -1044,6 +1054,7 @@ function kmlDescription(points, index, header = '') {
   const body = (header ? `${header}<br>` : '')
     + `Фаза: <b>${PHASE_TITLES[p.phase] || p.phase}</b><br>`
     + `Высота: <b>${Math.round(p.alt)} м</b><br>`
+    + balloonPressure(p)
     + balloonCoordinates(p.lat, p.lon)
     + balloonMotion(points, index)
     + `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`;
@@ -1621,10 +1632,11 @@ function drawTrajectory(points, startLat, startLon) {
     trajCollection.add(new ymaps.Placemark([p.lat, p.lon], {
       balloonContentHeader: 'Промежуточная точка',
       balloonContentBody:
-        `Высота: <b>${Math.round(p.alt)} м</b><br>` +
+        `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b></br>`+
         balloonCoordinates(p.lat, p.lon) +
-        balloonMotion(points, k) +
-        `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
+        `Высота: <b>${Math.round(p.alt)} </b>&nbsp;&nbsp;` +
+        balloonPressure(p)  +
+              balloonMotion(points, k)
     }, dotIcon(phaseColor(p.phase), '#ffffff', 16)));
   }
 
@@ -1640,6 +1652,7 @@ function drawTrajectory(points, startLat, startLon) {
       balloonContentHeader: 'Точка разрыва',
       balloonContentBody:
         `Высота: <b>${Math.round(burstPt.alt)} м</b><br>` +
+        balloonPressure(burstPt) +
         balloonCoordinates(burstPt.lat, burstPt.lon) +
         balloonMotion(points, burstIdx) +
         `Время: <b>${(burstPt.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
