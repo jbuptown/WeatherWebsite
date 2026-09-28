@@ -471,13 +471,7 @@ class GFSDataset:
         return v0 * (1 - tf) + v1 * tf
 
     def _level_heights(self, lat: float, lon: float, dt_utc: datetime):
-        """Таблица (высота уровня, его давление) для точки и момента времени.
 
-        Зависит от точки и времени, но не от высоты, а подряд идущие вызовы
-        часто приходят с одинаковыми аргументами: точку сначала записывает
-        append_point, а следом с теми же координатами стартует РК4. Поэтому
-        держим результат последнего запроса.
-        """
         memo_key = (lat, lon, dt_utc)
         if self._heights_memo is not None and self._heights_memo[0] == memo_key:
             return self._heights_memo[1]
@@ -497,7 +491,6 @@ class GFSDataset:
 
     @staticmethod
     def _bracket(heights: list, alt_m: float):
-        """Соседние уровни вокруг высоты и доля пути от нижнего к верхнему."""
         idx = 0
         for k, (height, _) in enumerate(heights):
             if height <= alt_m:
@@ -511,7 +504,7 @@ class GFSDataset:
 
     def get_uv(self, lat: float, lon: float,
                dt_utc: datetime, alt_m: float) -> tuple:
-        """Interpolate time, latitude and longitude before altitude."""
+
         (fxx0, fxx1, tf), heights = self._level_heights(lat, lon, dt_utc)
         if not heights:
             return 0.0, 0.0
@@ -532,7 +525,6 @@ class GFSDataset:
 
     def get_pressure(self, lat: float, lon: float,
                      dt_utc: datetime, alt_m: float) -> float:
-        """Давление на высоте: обратная задача к геопотенциальным высотам."""
         _, heights = self._level_heights(lat, lon, dt_utc)
         if not heights:
             return altitude_to_pressure(alt_m)
@@ -547,7 +539,7 @@ class GFSDataset:
 
     def get_ground_altitude(self, lat: float, lon: float,
                             dt_utc: datetime) -> float:
-        """Use Ruaumoko-compatible DEM, falling back to GFS surface height."""
+
         try:
             return max(0.0, get_elevation(lat, lon))
         except Exception:
@@ -575,11 +567,9 @@ def build_gfs_dataset(lat: float, lon: float,
                        flight_hours: float = 10.0,
                        margin: float = 5.0,
                        gfs_mode: str = 'approx') -> GFSDataset:
-    """Download all required GFS forecast hours for the trajectory."""
+
     run_dt  = _gfs_run_dt(launch_dt)
     fxxs    = _fxx_list(run_dt, launch_dt, flight_hours)
-    # Постоянные границы в целых градусах позволяют соседним точкам запуска
-    # использовать один дисковый кэш.
     lat_min = math.floor(lat - margin)
     lat_max = math.ceil(lat + margin)
     lon_min = math.floor(lon - margin)
@@ -605,7 +595,6 @@ def build_gfs_dataset(lat: float, lon: float,
 def _rk4_step(ds: GFSDataset,
               lat: float, lon: float, alt: float,
               t: datetime, dt: float, vertical_rate):
-    """Advance latitude, longitude and altitude by one coupled RK4 step."""
 
     def derivative(la, lo, al, ti):
         u, v = ds.get_uv(la, lo, ti, al)
@@ -657,13 +646,7 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
                           profile: str = 'standard',
                           max_float_seconds: float = 172_800.0,
                           gfs_mode: str = 'approx') -> tuple:
-    """
-    Balloon trajectory using NOAA GFS GRIB2 wind data.
 
-    The model uses isobaric pressure levels, four-dimensional linear
-    wind interpolation, density-adjusted descent speed and RK4 integration
-    with a 60-second timestep.
-    """
 
     ascent_h  = burst_altitude / ascent_rate / 3600
     descent_h = burst_altitude / descent_rate / 3600   
@@ -700,7 +683,6 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
         })
 
     def termination_lerp(start_state, end_state, terminator):
-        """Locate a phase boundary between two integration states."""
         left, right = 0.0, 1.0
         result = end_state
         while right - left > 0.01:

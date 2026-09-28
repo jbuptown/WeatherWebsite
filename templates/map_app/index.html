@@ -9,6 +9,9 @@
   <!-- Yandex Maps JS API 2.1 (доступен в РФ без VPN) -->
   <script src="https://api-maps.yandex.ru/2.1/?apikey=14893153-03b0-4a66-a999-40bb38804538&lang=ru_RU"></script>
 
+  <!-- ExcelJS: формирование настоящего .xlsx со стилями для экспорта траектории -->
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -729,7 +732,7 @@
   </div>
 
   <button id="btn-calc" onclick="runPrediction()">Рассчитать траекторию</button>
-  <button id="btn-export" onclick="downloadTrajectoryCsv()">Скачать Excel</button>
+  <button id="btn-export" onclick="downloadTrajectoryExcel()">Скачать Excel</button>
   <button id="btn-export-kml" onclick="downloadTrajectoryKml()">Скачать KML</button>
   <button id="btn-clear" onclick="clearTrajectory()">Очистить карту</button>
 </div>
@@ -873,11 +876,6 @@ function syncFloatDurationConversion() {
   }
 }
 
-function formatCsvNumber(value, digits = 6) {
-  if (!Number.isFinite(value)) return '';
-  return Number(value).toFixed(digits).replace('.', ',');
-}
-
 function formatIcaoPart(value,degDigits, positiveSuffix, negativeSuffix) {
   if (!Number.isFinite(value)) return '';
   const suffix = value >= 0 ? positiveSuffix : negativeSuffix;
@@ -947,11 +945,6 @@ function balloonMotion(points, index) {
          `Азимут: <b>${formatBearing(motion.bearing)}</b><br>`;
 }
 
-function csvCell(value) {
-  const text = String(value ?? '');
-  return /[;"\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 function flightSecond(point, firstTime, index) {
   const currentTime = Date.parse(point.time || '');
   if (Number.isFinite(currentTime) && Number.isFinite(firstTime)) {
@@ -960,41 +953,100 @@ function flightSecond(point, firstTime, index) {
   return index * 60;
 }
 
-function downloadTrajectoryCsv() {
+// Градусы/минуты/секунды с запятой как десятичным разделителем и суффиксом
+// полушария — формат, привычный для полётных таблиц (56° 07' 53,61" N).
+function toDmsCoord(value, positiveSuffix, negativeSuffix) {
+  if (!Number.isFinite(value)) return '';
+  const suffix = value >= 0 ? positiveSuffix : negativeSuffix;
+  const absolute = Math.abs(value);
+  let degrees = Math.floor(absolute);
+  let minutesFloat = (absolute - degrees) * 60;
+  let minutes = Math.floor(minutesFloat);
+  let seconds = Math.round((minutesFloat - minutes) * 60 * 100) / 100;
+  if (seconds >= 60) { seconds -= 60; minutes += 1; }
+  if (minutes >= 60) { minutes -= 60; degrees += 1; }
+  const secondsText = seconds.toFixed(2).replace('.', ',');
+  return `${degrees}° ${String(minutes).padStart(2, '0')}' ${secondsText}" ${suffix}`;
+}
+
+// Excel-время хранится как доля суток. Для полётного времени используем
+// формат '[h]:mm', который не сбрасывается на 24 часах (полёты бывают > 24 ч).
+function flightDurationFraction(point, firstTime) {
+  const currentTime = Date.parse(point.time || '');
+  if (!Number.isFinite(currentTime) || !Number.isFinite(firstTime)) return 0;
+  return Math.max(0, (currentTime - firstTime) / 86_400_000);
+}
+
+function utcTimeFraction(point) {
+  const date = new Date(point.time || '');
+  if (Number.isNaN(date.getTime())) return 0;
+  return (date.getUTCHours() * 60 + date.getUTCMinutes()) / 1440;
+}
+
+function mskTimeFraction(point) {
+  const date = new Date(point.time || '');
+  if (Number.isNaN(date.getTime())) return 0;
+  return ((date.getUTCHours() * 60 + date.getUTCMinutes() + 180) % 1440) / 1440;
+}
+
+async function downloadTrajectoryExcel() {
   if (!lastTrajectory.length) {
     showStatus('Сначала рассчитайте траекторию', true);
     return;
   }
+  if (typeof ExcelJS === 'undefined') {
+    showStatus('Не удалось загрузить библиотеку Excel', true);
+    return;
+  }
 
   const firstTime = Date.parse(lastTrajectory[0].time || '');
-  const rows = [
-    [
-      'Секунда полета',
-      'Высота, м',
-      'Давление, гПа',
-      'Широта (градусы минуты секунды)',
-      'Долгота (градусы минуты секунды)',
-      'Широта (десятичная)',
-      'Долгота (десятичная)',
-    ],
+
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('Траектория');
+
+  sheet.columns = [
+    { header: 'Полетное время', key: 'flight', width: 16 },
+    { header: 'UTC', key: 'utc', width: 10 },
+    { header: 'МСК', key: 'msk', width: 10 },
+    { header: 'Высота, м', key: 'alt', width: 12 },
+    { header: 'Широта', key: 'lat', width: 22 },
+    { header: 'Долгота', key: 'lon', width: 22 },
   ];
 
-  lastTrajectory.forEach((point, index) => {
-    rows.push([
-      flightSecond(point, firstTime, index),
-      formatCsvNumber(point.alt, 1),
-      formatCsvNumber(point.pressure, 1),
-      formatCoordinateDms(point.lat, 'N', 'S'),
-      formatCoordinateDms(point.lon, 'E', 'W'),
-      formatCsvNumber(point.lat, 8),
-      formatCsvNumber(point.lon, 8),
-    ]);
+  const thinEdge = { style: 'thin', color: { argb: 'FF000000' } };
+  const cellBorder = { top: thinEdge, left: thinEdge, bottom: thinEdge, right: thinEdge };
+  const centered = { vertical: 'middle', horizontal: 'center', wrapText: true };
+
+  sheet.getRow(1).eachCell(cell => {
+    cell.font = { bold: true };
+    cell.alignment = centered;
+    cell.border = cellBorder;
   });
 
-  const csv = '\ufeff' + rows
-    .map(row => row.map(csvCell).join(';'))
-    .join('\r\n');
-  downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8;' }), `trajectory_${exportStamp()}.csv`);
+  lastTrajectory.forEach(point => {
+    const row = sheet.addRow({
+      flight: flightDurationFraction(point, firstTime),
+      utc: utcTimeFraction(point),
+      msk: mskTimeFraction(point),
+      alt: Number.isFinite(point.alt) ? point.alt : null,
+      lat: toDmsCoord(point.lat, 'N', 'S'),
+      lon: toDmsCoord(point.lon, 'E', 'W'),
+    });
+    row.getCell('flight').numFmt = '[h]:mm';
+    row.getCell('utc').numFmt = 'h:mm';
+    row.getCell('msk').numFmt = 'h:mm';
+    row.getCell('alt').numFmt = '0.0';
+    row.eachCell({ includeEmpty: true }, cell => {
+      cell.alignment = centered;
+      cell.border = cellBorder;
+    });
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  downloadBlob(
+    new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    `trajectory_${exportStamp()}.xlsx`,
+  );
 }
 
 function exportStamp() {
