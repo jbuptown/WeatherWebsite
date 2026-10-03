@@ -5,7 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Расчёт траектории полёта</title>
-
+  <link rel ="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <!-- Yandex Maps JS API 2.1 (доступен в РФ без VPN) -->
   <script src="https://api-maps.yandex.ru/2.1/?apikey=14893153-03b0-4a66-a999-40bb38804538&lang=ru_RU"></script>
 
@@ -378,7 +379,25 @@
     #legend.show { display: flex; }
     .leg-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #444; }
     .leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-
+   /* ── Тёмное всплывающее окно Leaflet ── */
+    .dark-popup .leaflet-popup-content-wrapper,
+    .dark-popup .leaflet-popup-tip {
+      background: var(--ink);
+      border: 1px solid #444;
+      color: #fff;
+    }
+    .dark-popup .leaflet-popup-content-wrapper {
+      border-radius: 6px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.45);
+    }
+    .dark-popup .leaflet-popup-content {
+      margin: 12px 36px 12px 14px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .dark-popup .leaflet-popup-close-button {
+      color: var(--white-soft);
+    }
     /* ── Всплывающее окно (балун) над точкой ── */
     .ymap-balloon {
       position: absolute;
@@ -758,38 +777,136 @@ let map, trajCollection, balloonLayout;
 // ждёт init(). Стартовая точка из query-параметров копится здесь.
 let mapReady = false;
 let pendingStart = null;
+let rulerOn = false;
 
-ymaps.ready(init);
 function init() {
-    balloonLayout = makeBalloonLayout();
-    map = new ymaps.Map("map", {
-        center: [55.76, 37.64],
-        controls: ['typeSelector', 'rulerControl'],
-        zoom: 7
-    },{
-        yandexMapDisablePoiInteractivity: true,
-        suppressMapOpenBlock: true,
-        maxZoom: 14,
-        minZoom: 3
+
+    map = L.map('map', { minZoom: 3, maxZoom: 14, zoomControl: false }).setView([55.76, 37.64], 7);
+    L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map);
+    const osm =  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
     });
-    trajCollection = new ymaps.GeoObjectCollection();
-    map.geoObjects.add(trajCollection);
-    map.events.add('click', e => {
-        const [lat, lon] = e.get('coords').map(v => +v.toFixed(4));
+
+    const topo = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        maxZoom: 17,
+        attribution: '&copy; OpenStreetMap, SRTM | &copy; OpenTopoMap'
+    });
+    const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: '&copy; Esri'
+    });
+    const yandex = L.tileLayer('https://core-renderer-tiles.maps.yandex.net/tiles?l=map&x={x}&y={y}&z={z}&scale=1&lang=ru_RU', {
+        maxZoom: 19,
+        attribution: '&copy; Яндекс'
+    });
+
+    const yandexSat = L.tileLayer('https://core-sat.maps.yandex.net/tiles?l=sat&x={x}&y={y}&z={z}', {
+        maxZoom: 19,
+        attribution: '&copy; Яндекс'
+    });
+    const baseLayers = {
+        'OpenStreetMap': osm,
+        'Топографическая': topo,
+        'Спутник': satellite,
+        'Яндекс': yandex,
+        'Яндекс Спутник': yandexSat
+    };
+    osm.addTo(map);
+    L.control.layers(baseLayers).addTo(map);
+    map.attributionControl.setPrefix(false);
+    map.on('baselayerchange', function (e) {
+    const center = map.getCenter();
+    const zoom = map.getZoom();
+
+    if (e.layer === yandex || e.layer === yandexSat) {
+        map.options.crs = L.CRS.EPSG3395;
+    } else {
+        map.options.crs = L.CRS.EPSG3857;
+    }
+
+    map.setView(center, zoom, { reset: true });
+});
+
+    trajCollection = L.layerGroup().addTo(map);
+    initRuler();
+    map.on('click', function (e) {
+      if (rulerOn) return;
+        const lat = Number(e.latlng.lat.toFixed(4));
+        const lon = Number(e.latlng.lng.toFixed(4));
         document.getElementById('inp-lat').value = lat;
         document.getElementById('inp-lon').value = lon;
         placeStartMarker(lat, lon);
     });
     mapReady = true;
 
-    // Отложенные до готовности карты действия: точка старта из ссылки
-    // и, если параметры расчёта заданы, автоматический запуск.
     if (pendingStart) {
         placeStartMarker(pendingStart.lat, pendingStart.lon);
-        map.setCenter([pendingStart.lat, pendingStart.lon], 8);
+        map.setView([pendingStart.lat, pendingStart.lon], 8);
         pendingStart = null;
     }
     if (hasPredictParams) runPrediction();
+}
+function initRuler() {
+  let lastPoint = null;
+  const rulerMarkers = L.layerGroup().addTo(map);
+  const rulerLine = L.polyline([], { color: '#e33', weight: 3, interactive: false }).addTo(map);
+
+  map.on('click', function (e) {
+    if (!rulerOn) return;
+
+    rulerLine.addLatLng(e.latlng);
+    L.circleMarker(e.latlng, { radius: 4, color: '#e33', interactive: false })
+      .addTo(rulerMarkers);
+
+    if (lastPoint !== null) {
+      const segment = map.distance(lastPoint, e.latlng);
+      const middle = L.latLng(
+        (lastPoint.lat + e.latlng.lat) / 2,
+        (lastPoint.lng + e.latlng.lng) / 2
+      );
+      L.tooltip({ permanent: true, direction: 'center', className: 'ruler-label' })
+        .setLatLng(middle)
+        .setContent(Math.round(segment) + ' м')
+        .addTo(rulerMarkers);
+    }
+    lastPoint = e.latlng;
+  });
+
+  const RulerControl = L.Control.extend({
+    options: { position: 'bottomright' },
+    onAdd: function () {
+      const box = document.createElement('div');
+      box.className = 'leaflet-bar';
+
+      const btn = document.createElement('a');
+      btn.href = '#';
+      btn.title = 'Линейка';
+      btn.textContent = '📏';
+      box.appendChild(btn);
+
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        rulerOn = !rulerOn;
+        if (rulerOn) {
+          btn.style.background = '#cde';
+          map.doubleClickZoom.disable();
+          map.getContainer().style.cursor = 'crosshair';
+        } else {
+          btn.style.background = '';
+          map.doubleClickZoom.enable();
+          map.getContainer().style.cursor = '';
+          rulerLine.setLatLngs([]);
+          rulerMarkers.clearLayers();
+          lastPoint = null;
+        }
+      });
+
+      L.DomEvent.disableClickPropagation(box);
+      return box;
+    },
+  });
+
+  new RulerControl().addTo(map);
 }
 // ─────────────── Состояние ──────────────────────
 let startMarker = null;
@@ -1281,6 +1398,20 @@ function makeBalloonLayout() {
 // Маркер-точка как встроенный SVG: цветной кружок с белой каймой.
 // Рендерится прямо на canvas карты, не зависит от внешнего CSS.
 // size — диаметр в пикселях: ~22 для ключевых точек, ~11 для промежуточных.
+function dotStyle(fill, stroke, size = 22) {
+  const big = size >= 18;
+  return {
+    radius: size / 2 - (big ? 3 : 1.5),
+    color: stroke,
+    weight: big ? 2.5 : 1.5,
+    fillColor: fill,
+    fillOpacity: 1,
+    bubblingMouseEvents: false,
+  };
+}
+function popupHtml(header, body) {
+  return `<div class="popup-title">${header}</div><div class="popup-row">${body}</div>`;
+}
 function dotIcon(fill, stroke, size = 22) {
   const c = size / 2;
   const big = size >= 18;
@@ -1303,12 +1434,13 @@ function dotIcon(fill, stroke, size = 22) {
 
 // ─────────────── Маркер точки старта ────────────
 function placeStartMarker(lat, lon) {
-  if (startMarker) map.geoObjects.remove(startMarker);
-  startMarker = new ymaps.Placemark([lat, lon], {
-    balloonContentHeader: 'Точка старта',
-    balloonContentBody: balloonCoordinates(lat, lon),
-  }, dotIcon('#3f9b58', '#ffffff'));
-  map.geoObjects.add(startMarker);
+  if (startMarker) startMarker.remove();
+  startMarker = L.circleMarker([lat, lon], dotStyle('#3f9b58', '#ffffff'))
+    .bindPopup(
+      popupHtml('Точка старта', balloonCoordinates(lat, lon)),
+      { className: 'dark-popup' }
+    )
+    .addTo(map);
 }
 
 // ─────────────── Приветственное окно ────────────
@@ -1666,30 +1798,28 @@ function drawTrajectory(points, startLat, startLon) {
 
   // ── Отрезки по фазам (координаты [широта, долгота]) ──
   phaseSegments(points).forEach(segment => {
-    trajCollection.add(new ymaps.Polyline(
-      segment.points.map(p => [p.lat, p.lon]),
-      {},
-      {
-        strokeColor: phaseColor(segment.phase),
-        strokeWidth: 3.5,
-        strokeOpacity: 0.88,
-      },
-    ));
+    L.polyline(segment.points.map(p => [p.lat, p.lon]), {
+      color: phaseColor(segment.phase),
+      weight: 3.5,
+      opacity: 0.88,
+      bubblingMouseEvents: false,
+    }).addTo(trajCollection);
   });
 
   // ── Промежуточные точки (каждая 5-я) с балуном ──
   const step = 5;
   for (let k = step; k < points.length - step; k += step) {
     const p = points[k];
-    trajCollection.add(new ymaps.Placemark([p.lat, p.lon], {
-      balloonContentHeader: 'Промежуточная точка',
-      balloonContentBody:
-        `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b></br>`+
-        balloonCoordinates(p.lat, p.lon) +
-        `Высота: <b>${Math.round(p.alt)} </b>&nbsp;&nbsp;` +
-        balloonPressure(p)  +
-              balloonMotion(points, k)
-    }, dotIcon(phaseColor(p.phase), '#ffffff', 16)));
+    const body =
+      `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b></br>` +
+      balloonCoordinates(p.lat, p.lon) +
+      `Высота: <b>${Math.round(p.alt)} </b>&nbsp;&nbsp;` +
+      balloonPressure(p) +
+      balloonMotion(points, k);
+
+    L.circleMarker([p.lat, p.lon], dotStyle(phaseColor(p.phase), '#ffffff', 16))
+      .bindPopup(popupHtml('Промежуточная точка', body), { className: 'dark-popup' })
+      .addTo(trajCollection);
   }
 
   // ── Маркер разрыва (последняя точка подъёма) ──
@@ -1698,31 +1828,25 @@ function drawTrajectory(points, startLat, startLon) {
     if (points[k].phase === 'ascent') { burstIdx = k; break; }
   }
   const burstPt = burstIdx >= 0 ? points[burstIdx] : null;
-  if (burstMarker) map.geoObjects.remove(burstMarker);
+  if (burstMarker) burstMarker.remove();
   if (burstPt) {
-    burstMarker = new ymaps.Placemark([burstPt.lat, burstPt.lon], {
-      balloonContentHeader: 'Точка разрыва',
-      balloonContentBody:
-        `Высота: <b>${Math.round(burstPt.alt)} м</b><br>` +
+    const burstMarkerbody = `Высота: <b>${Math.round(burstPt.alt)} м</b><br>` +
         balloonPressure(burstPt) +
         balloonCoordinates(burstPt.lat, burstPt.lon) +
         balloonMotion(points, burstIdx) +
-        `Время: <b>${(burstPt.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
-    }, dotIcon('#ffffff', '#111111'));
-    map.geoObjects.add(burstMarker);
+        `Время: <b>${(burstPt.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`
+    burstMarker = L.circleMarker([burstPt.lat, burstPt.lon], dotStyle('#ffffff', '#111111'))
+    .bindPopup(popupHtml('Точка разрыва', burstMarkerbody), {className: 'dark-popup'}).addTo(trajCollection);
   }
 
   // ── Маркер финиша ──
   const last = points[points.length - 1];
-  if (landMarker) map.geoObjects.remove(landMarker);
-  landMarker = new ymaps.Placemark([last.lat, last.lon], {
-    balloonContentHeader: 'Точка финиша',
-    balloonContentBody:
-      balloonCoordinates(last.lat, last.lon) +
+  if (landMarker) landMarker.remove();
+  const landMarkerbody = balloonCoordinates(last.lat, last.lon) +
       balloonMotion(points, points.length - 1) +
-      `<br>Время: <b>${(last.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`,
-  }, dotIcon('#df715f', '#ffffff'));
-  map.geoObjects.add(landMarker);
+      `<br>Время: <b>${(last.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`;
+  landMarker = L.circleMarker([last.lat, last.lon], dotStyle('#df715f', '#ffffff'))
+  .bindPopup(popupHtml('Точка финиша', landMarkerbody), {className: 'dark-popup'}).addTo(trajCollection)
 
   // ── Координаты финиша в меню ──
   document.getElementById('res-lat').textContent = last.lat.toFixed(4);
@@ -1732,9 +1856,9 @@ function drawTrajectory(points, startLat, startLon) {
   // ── Подгоняем границы карты под весь трек ──
   const lats = points.map(p => p.lat);
   const lons = points.map(p => p.lon);
-  map.setBounds(
+  map.fitBounds(
     [[Math.min(...lats), Math.min(...lons)], [Math.max(...lats), Math.max(...lons)]],
-    { checkZoomRange: true, zoomMargin: 40, duration: 600 },
+    {padding: [40,40]},
   );
 
   document.getElementById('legend').classList.add('show');
@@ -1743,9 +1867,9 @@ function drawTrajectory(points, startLat, startLon) {
 // ─────────────── Очистка ─────────────────────────
 function clearTrajectory(resetResult = true) {
   if (mapReady) {
-    trajCollection.removeAll();
-    if (landMarker)  { map.geoObjects.remove(landMarker);  }
-    if (burstMarker) { map.geoObjects.remove(burstMarker); }
+    trajCollection.clearLayers();
+    if (landMarker)  { landMarker.remove();  }
+    if (burstMarker) { burstMarker.remove(); }
   }
   landMarker  = null;
   burstMarker = null;
@@ -1778,6 +1902,7 @@ function getCsrfToken() {
 }
 
 const hasPredictParams = applyPredictQueryParams();
+init();
 document.getElementById('inp-float-dur')?.addEventListener('input', syncFloatDurationConversion);
 document.getElementById('inp-float-dur-unit')?.addEventListener('change', syncFloatDurationConversion);
 toggleFloatDuration();
