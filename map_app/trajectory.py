@@ -9,6 +9,7 @@ Interpolation: linear latitude, longitude, altitude and time
 Integration  : fourth-order Runge-Kutta, dt = 60 seconds
 """
 
+import bz2
 import math
 import os
 import hashlib
@@ -590,6 +591,239 @@ def build_gfs_dataset(lat: float, lon: float,
     return GFSDataset(run_dt, fxxs, grids)
 
 
+# ─────────────────────── ICON-EU (DWD) ──────────────────────────────────────
+
+ICON_BASE = 'https://opendata.dwd.de/weather/nwp/icon-eu/grib'
+ICON_LEVELS_HPA = [1000, 950, 925, 900, 875, 850, 825, 800, 775, 700,
+                   600, 500, 400, 300, 250, 200, 150, 100, 70, 50]
+ICON_VARS = ('u', 'v', 'fi')
+ICON_DOWNLOAD_WORKERS = 3
+GRAVITY = 9.80665
+
+
+def _icon_cache_dir() -> Path:
+    path = Path(__file__).resolve().parent.parent / '.icon_cache'
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _icon_url(run_dt: datetime, step: int, level: int, var: str) -> str:
+    run = run_dt.strftime('%Y%m%d%H')
+    filename = (
+        f'icon-eu_europe_regular-lat-lon_pressure-level_'
+        f'{run}_{step:03d}_{level}_{var.upper()}.grib2.bz2'
+    )
+    return f'{ICON_BASE}/{run_dt.hour:02d}/{var}/{filename}'
+
+
+def _icon_download(run_dt: datetime, step: int, level: int, var: str) -> Path:
+    """Скачивает один файл ICON-EU и возвращает путь к распакованному .grib2."""
+    path = _icon_cache_dir() / f'{run_dt:%Y%m%d%H}_{step:03d}_{level}_{var}.grib2'
+    if path.exists():
+        return path
+
+    url = _icon_url(run_dt, step, level, var)
+    for attempt in range(3):            # DWD иногда обрывает соединение
+        try:
+            response = requests.get(url, timeout=60)
+            break
+        except requests.ConnectionError:
+            if attempt == 2:
+                raise
+    if response.status_code != 200:
+        raise RuntimeError(f'ICON: нет файла {url} (HTTP {response.status_code})')
+
+    tmp = path.with_suffix('.tmp')
+    tmp.write_bytes(bz2.decompress(response.content))
+    os.replace(tmp, path)
+    return path
+
+
+def _icon_read(path: Path, lat: float, lon: float, margin: float) -> dict:
+    """Читает GRIB ICON и вырезает кусок сетки вокруг точки: ± margin градусов."""
+    with ECCODES_PARSE_LOCK, open(path, 'rb') as f:
+        msg = eccodes.codes_grib_new_from_file(f)
+        try:
+            ni = eccodes.codes_get(msg, 'Ni')
+            nj = eccodes.codes_get(msg, 'Nj')
+            lat0 = eccodes.codes_get(msg, 'latitudeOfFirstGridPointInDegrees')
+            lon0 = eccodes.codes_get(msg, 'longitudeOfFirstGridPointInDegrees')
+            step = eccodes.codes_get(msg, 'iDirectionIncrementInDegrees')
+            table = eccodes.codes_get_values(msg).reshape(nj, ni)
+        finally:
+            eccodes.codes_release(msg)
+
+    if lon0 > 180:
+        lon0 = lon0 - 360
+
+    j_min = max(0, int((lat - margin - lat0) / step))
+    j_max = min(nj - 1, int((lat + margin - lat0) / step) + 1)
+    i_min = max(0, int((lon - margin - lon0) / step))
+    i_max = min(ni - 1, int((lon + margin - lon0) / step) + 1)
+    if j_min >= j_max or i_min >= i_max:
+        raise ValueError(f'Точка {lat}, {lon} вне области ICON-EU (Европа)')
+
+    return {
+        'lat0': lat0 + j_min * step,
+        'lon0': lon0 + i_min * step,
+        'step': step,
+        'values': table[j_min:j_max + 1, i_min:i_max + 1],
+    }
+
+
+def _icon_steps(start_h: float, end_h: float) -> list:
+    """Часы прогноза ICON-EU, покрывающие полёт: каждый час до 78, дальше раз в 3 часа."""
+    available = list(range(0, 79)) + list(range(81, 121, 3))
+    first = max(s for s in available if s <= start_h)
+    last = min((s for s in available if s >= end_h), default=120)
+    steps = [s for s in available if first <= s <= last]
+    if last - first > 12:               # длинный полёт: хватит одного часа из трёх
+        steps = [s for s in steps if s % 3 == 0 or s == last]
+    return steps
+
+
+def _icon_run_dt(launch_dt: datetime, flight_hours: float) -> tuple:
+    """Самый свежий прогон ICON-EU (00/06/12/18 UTC), уже выложенный на сервер."""
+    now = datetime.utcnow()
+    start = min(launch_dt, now)
+    run = start.replace(hour=start.hour // 6 * 6, minute=0, second=0, microsecond=0)
+    for _ in range(5):                  # DWD хранит прогоны примерно сутки
+        start_h = (launch_dt - run).total_seconds() / 3600
+        if 0 <= start_h and start_h + flight_hours <= 120:
+            steps = _icon_steps(start_h, start_h + flight_hours)
+            probe = _icon_url(run, steps[-1], ICON_LEVELS_HPA[-1], 'v')
+            if requests.head(probe, timeout=15).status_code == 200:
+                return run, steps
+        run -= timedelta(hours=6)
+    raise ValueError(
+        'ICON-EU хранит прогоны только за последние сутки. '
+        'Выберите дату запуска ближе к текущей или сетку GFS'
+    )
+
+
+class IconDataset:
+    """Ветер ICON-EU. Методы те же, что у GFSDataset, поэтому РК4 работает без изменений."""
+
+    def __init__(self, run_dt: datetime, steps: list, fields: dict):
+        self.run_dt = run_dt
+        self.steps = steps
+        self.fields = fields            # fields[час][этаж][переменная]
+        self.grids = fields
+
+    @staticmethod
+    def _bilinear(field: dict, lat: float, lon: float) -> float:
+        """Значение в любой точке: смешиваем 4 соседних узла."""
+        t = field['values']
+        rows, cols = t.shape
+        # За краем куска берём ближайший край, как _bilinear_grid у GFS.
+        fj = min(max((lat - field['lat0']) / field['step'], 0.0), rows - 1.000001)
+        fi = min(max((lon - field['lon0']) / field['step'], 0.0), cols - 1.000001)
+        j0 = int(fj)
+        i0 = int(fi)
+        ty = fj - j0
+        tx = fi - i0
+
+        south = t[j0, i0] * (1 - tx) + t[j0, i0 + 1] * tx
+        north = t[j0 + 1, i0] * (1 - tx) + t[j0 + 1, i0 + 1] * tx
+        return float(south * (1 - ty) + north * ty)
+
+    def _heights(self, step: int, lat: float, lon: float) -> list:
+        """Высота каждого этажа в этой точке, снизу вверх."""
+        heights = []
+        for level in ICON_LEVELS_HPA:
+            heights.append(self._bilinear(self.fields[step][level]['fi'], lat, lon))
+        return heights
+
+    def _between_levels(self, heights: list, alt: float) -> tuple:
+        """Номер нижнего этажа k и доля пути вверх w."""
+        if alt <= heights[0]:
+            return 0, 0.0
+        if alt >= heights[-1]:
+            # Выше 50 гПа данных нет: продолжаем линию через два верхних этажа (w > 1).
+            k = len(heights) - 2
+            return k, (alt - heights[k]) / (heights[k + 1] - heights[k])
+        k = 0
+        while heights[k + 1] < alt:
+            k += 1
+        return k, (alt - heights[k]) / (heights[k + 1] - heights[k])
+
+    def _wind_at_height(self, step: int, lat: float, lon: float, alt: float) -> tuple:
+        """Ветер (u, v) на высоте alt метров в один час прогноза."""
+        k, w = self._between_levels(self._heights(step, lat, lon), alt)
+        low = self.fields[step][ICON_LEVELS_HPA[k]]
+        high = self.fields[step][ICON_LEVELS_HPA[k + 1]]
+        u = self._bilinear(low['u'], lat, lon) * (1 - w) + self._bilinear(high['u'], lat, lon) * w
+        v = self._bilinear(low['v'], lat, lon) * (1 - w) + self._bilinear(high['v'], lat, lon) * w
+        return u, v
+
+    def _time_bounds(self, dt_utc: datetime) -> tuple:
+        """Час «до», час «после» и доля пути между ними."""
+        hours = (dt_utc - self.run_dt).total_seconds() / 3600
+        s0 = max((s for s in self.steps if s <= hours), default=self.steps[0])
+        later = [s for s in self.steps if s > hours]
+        if not later:
+            return s0, s0, 0.0
+        s1 = later[0]
+        return s0, s1, max(0.0, min(1.0, (hours - s0) / (s1 - s0)))
+
+    def get_uv(self, lat: float, lon: float, dt_utc: datetime, alt_m: float) -> tuple:
+        s0, s1, w = self._time_bounds(dt_utc)
+        u0, v0 = self._wind_at_height(s0, lat, lon, alt_m)
+        if s1 == s0:
+            return u0, v0
+        u1, v1 = self._wind_at_height(s1, lat, lon, alt_m)
+        return u0 * (1 - w) + u1 * w, v0 * (1 - w) + v1 * w
+
+    def get_pressure(self, lat: float, lon: float, dt_utc: datetime, alt_m: float) -> float:
+        s0, _, _ = self._time_bounds(dt_utc)
+        heights = self._heights(s0, lat, lon)
+        if alt_m < heights[0]:          # ниже 1000 гПа: досчитываем по стандартной атмосфере
+            return ICON_LEVELS_HPA[0] * altitude_to_pressure(alt_m) / altitude_to_pressure(heights[0])
+        k, w = self._between_levels(heights, alt_m)
+        # Давление падает с высотой экспоненциально, поэтому смешиваем логарифмы.
+        low = math.log(ICON_LEVELS_HPA[k])
+        high = math.log(ICON_LEVELS_HPA[k + 1])
+        return math.exp(low * (1 - w) + high * w)
+
+    def get_ground_altitude(self, lat: float, lon: float, dt_utc: datetime) -> float:
+        try:
+            return max(0.0, get_elevation(lat, lon))
+        except Exception:
+            return 0.0
+
+
+def build_icon_dataset(lat: float, lon: float,
+                       launch_dt: datetime,
+                       flight_hours: float = 10.0,
+                       margin: float = 5.0) -> IconDataset:
+
+    if not (29.5 <= lat <= 70.5 and -23.5 <= lon <= 62.5):
+        raise ValueError(
+            f'Точка {lat:.2f}, {lon:.2f} вне области ICON-EU (Европа). Выберите сетку GFS'
+        )
+
+    run_dt, steps = _icon_run_dt(launch_dt, flight_hours)
+    jobs = [(step, level, var)
+            for step in steps for level in ICON_LEVELS_HPA for var in ICON_VARS]
+
+    # Качаем параллельно (ждём сеть), а читаем по очереди (ecCodes не любит потоки).
+    with ThreadPoolExecutor(max_workers=ICON_DOWNLOAD_WORKERS) as executor:
+        paths = list(executor.map(lambda job: _icon_download(run_dt, *job), jobs))
+
+    fields = {}
+    for (step, level, var), path in zip(jobs, paths):
+        field = _icon_read(path, lat, lon, margin)
+        if var == 'fi':
+            field['values'] = field['values'] / GRAVITY
+        if step not in fields:
+            fields[step] = {}
+        if level not in fields[step]:
+            fields[step][level] = {}
+        fields[step][level][var] = field
+
+    return IconDataset(run_dt, steps, fields)
+
+
 # ─────────────────────── Шаг метода РК4 ─────────────────────────────────────
 
 def _rk4_step(ds: GFSDataset,
@@ -654,11 +888,14 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
     flight_h  = (float_h + 10 if profile == 'float_profile'
                  else ascent_h + descent_h + 2)
 
-    ds = build_gfs_dataset(
-        lat, lon, launch_dt_utc,
-        flight_hours=flight_h,
-        gfs_mode=gfs_mode,
-    )
+    if gfs_mode == 'icon':
+        ds = build_icon_dataset(lat, lon, launch_dt_utc, flight_hours=flight_h)
+    else:
+        ds = build_gfs_dataset(
+            lat, lon, launch_dt_utc,
+            flight_hours=flight_h,
+            gfs_mode=gfs_mode,
+        )
 
     DT = 60;  MAX_STEPS = 14_400
     cur_lat, cur_lon, cur_alt = lat, lon, alt
@@ -763,6 +1000,18 @@ def calculate_trajectory(lat: float, lon: float, alt: float,
                 break
 
             cur_lat, cur_lon, cur_alt, cur_time = end_state
+
+    if gfs_mode == 'icon':
+        info = {
+            'source':    (f'DWD ICON-EU 0.0625° — RK4, выше ~20 км экстраполяция '
+                          f'(run {ds.run_dt.strftime("%Y-%m-%d %HZ")})'),
+            'points':    len(trajectory),
+            'api_calls': len(ds.steps) * len(ICON_LEVELS_HPA) * len(ICON_VARS),
+            'gfs_mode':  gfs_mode,
+            'grid':      '0.0625°',
+            'levels':    len(ICON_LEVELS_HPA),
+        }
+        return trajectory, info
 
     first_grid = next(iter(ds.grids.values()), {})
     levels_count = len(first_grid.get('u', {}))

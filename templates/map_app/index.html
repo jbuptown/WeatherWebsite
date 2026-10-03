@@ -716,11 +716,12 @@
     </div>
   </div>
   <div class="field-row">
-    <label>Сетка GFS</label>
+    <label>Модель / сетка</label>
     <div class="select-wrap">
       <select id="inp-gfs-mode">
         <option value="approx">Приближенная 1.0°</option>
         <option value="full">Точная 0.5°</option>
+        <option value="icon">ICON-EU 0.0625° (Европа)</option>
       </select>
     </div>
   </div>
@@ -1474,7 +1475,7 @@ function applyPredictQueryParams() {
     setFloatDurationSeconds(maxFloatHours * 3600);
   }
   document.getElementById('inp-profile').value = profile === 'float_profile' ? 'float_profile' : 'standard';
-  document.getElementById('inp-gfs-mode').value = gfsMode === 'full' ? 'full' : 'approx';
+  document.getElementById('inp-gfs-mode').value = ['full', 'icon'].includes(gfsMode) ? gfsMode : 'approx';
 
   if (launchDateTime) {
     const dt = new Date(launchDateTime);
@@ -1731,9 +1732,11 @@ async function runPrediction() {
       + targetAltitude / body.descent_rate / 3600;
     const forecastSlices = Math.ceil(estimatedHours / 3) + 2;
     const modeLabel = body.gfs_mode === 'full' ? 'точная сетка 0.5°' : 'приближенная сетка 1.0°';
-    document.getElementById('loading-msg').textContent = estimatedHours > 12
-      ? `Расчет · подготавливаю до ${forecastSlices} прогнозов GFS…`
-      : `Загружаю данные ветра GFS · ${modeLabel}…`;
+    document.getElementById('loading-msg').textContent = body.gfs_mode === 'icon'
+      ? 'Загружаю данные ветра ICON-EU (DWD) · первый расчёт может занять несколько минут…'
+      : estimatedHours > 12
+        ? `Расчет · подготавливаю до ${forecastSlices} прогнозов GFS…`
+        : `Загружаю данные ветра GFS · ${modeLabel}…`;
 
     // Сообщение, собранное выше, служит основой для строки прогресса.
     const baseMsg = document.getElementById('loading-msg').textContent;

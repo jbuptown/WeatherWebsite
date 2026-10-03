@@ -40,8 +40,8 @@ def _clean_predict_params(data):
     gfs_mode = str(data.get('gfs_mode', 'approx'))
     if gfs_mode == 'fast':
         gfs_mode = 'approx'
-    if gfs_mode not in ('approx', 'full'):
-        raise ValueError('gfs_mode must be approx or full')
+    if gfs_mode not in ('approx', 'full', 'icon'):
+        raise ValueError('gfs_mode must be approx, full or icon')
     params['gfs_mode'] = gfs_mode
 
     if params['ascent_rate'] <= 0 or params['descent_rate'] <= 0:
@@ -161,8 +161,8 @@ def predict_trajectory(request):
             raise ValueError('Ascent and descent rates must be greater than zero')
         if max_float_seconds <= 0:
             raise ValueError('Float duration must be greater than zero')
-        if gfs_mode not in ('approx', 'full'):
-            raise ValueError('gfs_mode must be approx or full')
+        if gfs_mode not in ('approx', 'full', 'icon'):
+            raise ValueError('gfs_mode must be approx, full or icon')
 
         date_str = data.get('launch_date', datetime.utcnow().strftime('%Y-%m-%d'))
         time_str = data.get('launch_time', '00:00')
