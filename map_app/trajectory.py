@@ -678,7 +678,8 @@ def _icon_read(path: Path, lat: float, lon: float, margin: float) -> dict:
         'lat0': lat0 + j_min * step,
         'lon0': lon0 + i_min * step,
         'step': step,
-        'values': table[j_min:j_max + 1, i_min:i_max + 1],
+        # copy(): срез numpy держит в памяти всю сетку Европы (~7 МБ), а нам нужен кусок ~0.2 МБ
+        'values': table[j_min:j_max + 1, i_min:i_max + 1].copy(),
     }
 
 
