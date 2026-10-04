@@ -255,8 +255,7 @@
     #btn-calc:disabled { background: #c0b0f0; box-shadow: none; cursor: not-allowed; }
 
     #btn-clear,
-    #btn-export,
-    #btn-export-kml {
+    #btn-export {
       margin-top: 8px;
       width: 100%;
       padding: 9px;
@@ -269,30 +268,27 @@
       transition: background .2s;
       flex-shrink: 0;
     }
-    #btn-export,
-    #btn-export-kml { display: none; }
+    /* «Скачать файл» и справа выбор формата */
+    #export-row {
+      display: none;
+      grid-template-columns: minmax(0, 1fr) 96px;
+      gap: 8px;
+      margin: 8px 0 0;
+      flex-shrink: 0;
+    }
+    #export-row.show { display: grid; }
     #btn-export {
+      margin-top: 0;
       background: #1f9d55;
       border-color: #1f9d55;
       color: #fff;
       font-weight: 700;
     }
-    #btn-export-kml {
-      background: #2f6fd0;
-      border-color: #2f6fd0;
-      color: #fff;
-      font-weight: 700;
-    }
-    #btn-clear:hover,
-    #btn-export:hover { background: #f8f8f8; }
+    #export-row .select-wrap select { height: 100%; }
+    #btn-clear:hover { background: #f8f8f8; }
     #btn-export:hover {
       background: #188047;
       border-color: #188047;
-      color: #fff;
-    }
-    #btn-export-kml:hover {
-      background: #255ab0;
-      border-color: #255ab0;
       color: #fff;
     }
 
@@ -548,8 +544,7 @@
     #btn-calc:hover:not(:disabled) { background: #ff8b4a; }
     #btn-calc:disabled { background: #665536; color: #adb3b6; }
     #btn-clear,
-    #btn-export,
-    #btn-export-kml {
+    #btn-export {
       border-radius: 6px;
       border-color: #444;
       background: var(--ink-soft);
@@ -560,21 +555,10 @@
       border-color: #2fbf70;
       color: #fff;
     }
-    #btn-export-kml {
-      background: #2b5fae;
-      border-color: #4f8ade;
-      color: #fff;
-    }
-    #btn-clear:hover,
-    #btn-export:hover { background: #293137; border-color: var(--white-soft); }
+    #btn-clear:hover { background: #293137; border-color: var(--white-soft); }
     #btn-export:hover {
       background: #2fbf70;
       border-color: #62d596;
-      color: #111;
-    }
-    #btn-export-kml:hover {
-      background: #4f8ade;
-      border-color: #8ab6ec;
       color: #111;
     }
     #btn-menu-open {
@@ -632,6 +616,44 @@
         width: calc(100% - 20px);
       }
     }
+
+    /* ── Линейка: серый полупрозрачный стиль ── */
+    .ruler-control {
+      border: 1px solid rgba(80, 80, 80, 0.35) !important;
+      border-radius: 8px !important;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+    }
+    .ruler-control a {
+      width: 36px !important;
+      height: 36px !important;
+      line-height: 36px !important;
+      font-size: 18px;
+      background: rgba(120, 120, 120, 0.35) !important;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      border: none !important;
+      transition: background 0.15s;
+    }
+    .ruler-control a:hover {
+      background: rgba(120, 120, 120, 0.5) !important;
+    }
+    .ruler-control a.active {
+      background: rgba(60, 60, 60, 0.6) !important;
+    }
+    .ruler-label {
+      background: rgba(90, 90, 90, 0.55);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 6px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 600;
+      box-shadow: none;
+    }
+    .ruler-label::before { display: none; }
   </style>
 </head>
 <body>
@@ -752,8 +774,16 @@
   </div>
 
   <button id="btn-calc" onclick="runPrediction()">Рассчитать траекторию</button>
-  <button id="btn-export" onclick="downloadTrajectoryExcel()">Скачать Excel</button>
-  <button id="btn-export-kml" onclick="downloadTrajectoryKml()">Скачать KML</button>
+  <div id="export-row" class="field-row">
+    <button id="btn-export" onclick="downloadTrajectory()">Скачать файл</button>
+    <div class="select-wrap">
+      <select id="export-format" aria-label="Формат файла">
+        <option value="excel" selected>Excel</option>
+        <option value="kml">KML</option>
+        <option value="k42">K42</option>
+      </select>
+    </div>
+  </div>
   <button id="btn-clear" onclick="clearTrajectory()">Очистить карту</button>
 </div>
 
@@ -850,13 +880,18 @@ function init() {
 function initRuler() {
   let lastPoint = null;
   const rulerMarkers = L.layerGroup().addTo(map);
-  const rulerLine = L.polyline([], { color: '#e33', weight: 3, interactive: false }).addTo(map);
+  const rulerLine = L.polyline([], {
+    color: '#555', weight: 3, opacity: 0.6, dashArray: '6 6', interactive: false,
+  }).addTo(map);
 
   map.on('click', function (e) {
     if (!rulerOn) return;
 
     rulerLine.addLatLng(e.latlng);
-    L.circleMarker(e.latlng, { radius: 4, color: '#e33', interactive: false })
+    L.circleMarker(e.latlng, {
+      radius: 4, color: '#555', weight: 2, opacity: 0.7,
+      fillColor: '#fff', fillOpacity: 0.6, interactive: false,
+    })
       .addTo(rulerMarkers);
 
     if (lastPoint !== null) {
@@ -877,7 +912,7 @@ function initRuler() {
     options: { position: 'bottomright' },
     onAdd: function () {
       const box = document.createElement('div');
-      box.className = 'leaflet-bar';
+      box.className = 'leaflet-bar ruler-control';
 
       const btn = document.createElement('a');
       btn.href = '#';
@@ -888,12 +923,11 @@ function initRuler() {
       btn.addEventListener('click', function (e) {
         e.preventDefault();
         rulerOn = !rulerOn;
+        btn.classList.toggle('active', rulerOn);
         if (rulerOn) {
-          btn.style.background = '#cde';
           map.doubleClickZoom.disable();
           map.getContainer().style.cursor = 'crosshair';
         } else {
-          btn.style.background = '';
           map.doubleClickZoom.enable();
           map.getContainer().style.cursor = '';
           rulerLine.setLatLngs([]);
@@ -1063,6 +1097,25 @@ function balloonMotion(points, index) {
          `Азимут: <b>${formatBearing(motion.bearing)}</b><br>`;
 }
 
+// Полётное время отсчитывается не от старта, а от момента, когда зонд на подъёме
+// прошёл 100 м над уровнем моря. Между соседними точками время интерполируем.
+const FLIGHT_ZERO_ALT = 100;
+
+function flightStartTime(points) {
+  const startTime = Date.parse(points[0].time || '');
+  if (!(points[0].alt < FLIGHT_ZERO_ALT)) return startTime;   // старт уже выше 100 м
+  for (let k = 1; k < points.length; k++) {
+    const a = points[k - 1], b = points[k];
+    if (b.alt >= FLIGHT_ZERO_ALT) {
+      const ta = Date.parse(a.time || ''), tb = Date.parse(b.time || '');
+      if (!Number.isFinite(ta) || !Number.isFinite(tb)) return startTime;
+      return ta + (tb - ta) * (FLIGHT_ZERO_ALT - a.alt) / (b.alt - a.alt);
+    }
+    if (b.phase !== 'ascent') break;
+  }
+  return startTime;
+}
+
 function flightSecond(point, firstTime, index) {
   const currentTime = Date.parse(point.time || '');
   if (Number.isFinite(currentTime) && Number.isFinite(firstTime)) {
@@ -1107,7 +1160,43 @@ function mskTimeFraction(point) {
   return ((date.getUTCHours() * 60 + date.getUTCMinutes() + 180) % 1440) / 1440;
 }
 
-async function downloadTrajectoryExcel() {
+// Колонки координат: в Excel — широта/долгота WGS-84, в K42 — прямоугольные СК-42
+// всегда в 8-й зоне, как «Пулково 1942 зона 8 ГОСТ 51794-2008» (EPSG:28408).
+const K42_ZONE = 8;
+
+const EXCEL_COORD_COLUMNS = {
+  columns: [
+    { header: 'Широта', key: 'lat', width: 22 },
+    { header: 'Долгота', key: 'lon', width: 22 },
+  ],
+  values: point => ({
+    lat: toDmsCoord(point.lat, 'N', 'S'),
+    lon: toDmsCoord(point.lon, 'E', 'W'),
+  }),
+};
+
+const K42_COORD_COLUMNS = {
+  columns: [
+    { header: 'Зона', key: 'zone', width: 8 },
+    { header: 'X СК-42, м', key: 'x', width: 14 },
+    { header: 'Y СК-42, м', key: 'y', width: 14 },
+  ],
+  values: point => {
+    const gk = toSk42Gk(point.lat, point.lon, K42_ZONE);
+    return { zone: gk.zone, x: Math.round(gk.x), y: Math.round(gk.y) };
+  },
+  formats: { x: '0', y: '0' },
+};
+
+function downloadTrajectoryExcel() {
+  return downloadTrajectoryTable(EXCEL_COORD_COLUMNS, 'trajectory');
+}
+
+function downloadTrajectoryK42() {
+  return downloadTrajectoryTable(K42_COORD_COLUMNS, 'trajectory_sk42');
+}
+
+async function downloadTrajectoryTable(coords, filePrefix) {
   if (!lastTrajectory.length) {
     showStatus('Сначала рассчитайте траекторию', true);
     return;
@@ -1117,7 +1206,7 @@ async function downloadTrajectoryExcel() {
     return;
   }
 
-  const firstTime = Date.parse(lastTrajectory[0].time || '');
+  const firstTime = flightStartTime(lastTrajectory);
 
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet('Траектория');
@@ -1127,8 +1216,7 @@ async function downloadTrajectoryExcel() {
     { header: 'UTC', key: 'utc', width: 10 },
     { header: 'МСК', key: 'msk', width: 10 },
     { header: 'Высота, м', key: 'alt', width: 12 },
-    { header: 'Широта', key: 'lat', width: 22 },
-    { header: 'Долгота', key: 'lon', width: 22 },
+    ...coords.columns,
   ];
 
   const thinEdge = { style: 'thin', color: { argb: 'FF000000' } };
@@ -1147,13 +1235,15 @@ async function downloadTrajectoryExcel() {
       utc: utcTimeFraction(point),
       msk: mskTimeFraction(point),
       alt: Number.isFinite(point.alt) ? point.alt : null,
-      lat: toDmsCoord(point.lat, 'N', 'S'),
-      lon: toDmsCoord(point.lon, 'E', 'W'),
+      ...coords.values(point),
     });
     row.getCell('flight').numFmt = '[h]:mm';
     row.getCell('utc').numFmt = 'h:mm';
     row.getCell('msk').numFmt = 'h:mm';
     row.getCell('alt').numFmt = '0.0';
+    Object.entries(coords.formats || {}).forEach(([key, fmt]) => {
+      row.getCell(key).numFmt = fmt;
+    });
     row.eachCell({ includeEmpty: true }, cell => {
       cell.alignment = centered;
       cell.border = cellBorder;
@@ -1163,8 +1253,16 @@ async function downloadTrajectoryExcel() {
   const buffer = await workbook.xlsx.writeBuffer();
   downloadBlob(
     new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-    `trajectory_${exportStamp()}.xlsx`,
+    `${filePrefix}_${exportStamp()}.xlsx`,
   );
+}
+
+// Одна кнопка «Скачать файл»: формат берётся из списка справа от неё.
+function downloadTrajectory() {
+  const format = document.getElementById('export-format').value;
+  if (format === 'kml') return downloadTrajectoryKml();
+  if (format === 'k42') return downloadTrajectoryK42();
+  return downloadTrajectoryExcel();
 }
 
 function exportStamp() {
@@ -1299,7 +1397,7 @@ function buildTrajectoryKml(points) {
   keyPoints += kmlPlacemark(points, points.length - 1, { name: 'Точка финиша', styleId: 'pin-finish' });
 
   // ── Промежуточные точки: тот же шаг, что и на карте ──
-  const firstTime = Date.parse(points[0].time || '');
+  const firstTime = flightStartTime(points);
   const step = 5;
   let marks = '';
   for (let k = step; k < points.length - step; k += step) {
@@ -1563,9 +1661,9 @@ function phaseColor(phase) {
 const ELL_WGS84 = { a: 6378137.0,  f: 1 / 298.257223563 };
 const ELL_KRASS = { a: 6378245.0,  f: 1 / 298.3 };
 
-// Параметры перехода СК-42 → WGS-84 (ГОСТ Р 51794-2001)
+// Параметры перехода СК-42 → WGS-84 (ГОСТ Р 51794-2008, как у EPSG:28401…28432)
 const SK42_TO_WGS = {
-  dx: 23.92, dy: -141.27, dz: -80.9,
+  dx: 23.57, dy: -140.95, dz: -79.8,
   wx: 0, wy: -0.35, wz: -0.79,   // угловые секунды
   m: -0.22e-6
 };
@@ -1643,11 +1741,11 @@ function transverseMercator(latDeg, lonDeg, lon0Deg, k0, ell) {
   return { easting, northing };
 }
 
-// СК-42 / Гаусса-Крюгера, 6-градусные зоны
-function toSk42Gk(latWgs, lonWgs) {
+// СК-42 / Гаусса-Крюгера, 6-градусные зоны. Без fixedZone зона берётся по долготе точки.
+function toSk42Gk(latWgs, lonWgs, fixedZone = null) {
   const [lat, lon] = wgs84ToSk42Geodetic(latWgs, lonWgs, 0);
   const east = ((lon % 360) + 360) % 360;   // долгота 0…360° к востоку от Гринвича
-  const zone = Math.floor(east / 6) + 1;    // зоны СК-42 нумеруются от Гринвича
+  const zone = fixedZone || Math.floor(east / 6) + 1;   // зоны СК-42 нумеруются от Гринвича
   const lon0 = zone * 6 - 3;
   const { easting, northing } = transverseMercator(lat, east, lon0, 1, ELL_KRASS);
   return { zone, x: northing, y: zone * 1e6 + 500000 + easting };
@@ -1767,7 +1865,9 @@ async function runPrediction() {
 
     const inf = data.info || {};
     const gridText = inf.grid ? ` · сетка ${inf.grid}` : '';
-    showStatus(`Траектория готова · ${inf.source || 'NOAA GFS AWS'}${gridText} · ${data.trajectory.length} точек`);
+    showStatus(body.gfs_mode === 'icon'
+      ? 'Удачный расчёт'
+      : `Траектория готова · ${inf.source || 'NOAA GFS AWS'}${gridText} · ${data.trajectory.length} точек`);
 
   } catch (err) {
     showStatus('Ошибка: ' + err.message, true);
@@ -1796,8 +1896,7 @@ function phaseSegments(points) {
 function drawTrajectory(points, startLat, startLon) {
   if (!points || !points.length) return;
   lastTrajectory = points;
-  document.getElementById('btn-export').style.display = 'block';
-  document.getElementById('btn-export-kml').style.display = 'block';
+  document.getElementById('export-row').classList.add('show');
 
   // ── Отрезки по фазам (координаты [широта, долгота]) ──
   phaseSegments(points).forEach(segment => {
@@ -1877,8 +1976,7 @@ function clearTrajectory(resetResult = true) {
   landMarker  = null;
   burstMarker = null;
   lastTrajectory = [];
-  document.getElementById('btn-export').style.display = 'none';
-  document.getElementById('btn-export-kml').style.display = 'none';
+  document.getElementById('export-row').classList.remove('show');
   if (resetResult) {
     document.getElementById('res-lat').textContent = '—';
     document.getElementById('res-lon').textContent = '—';

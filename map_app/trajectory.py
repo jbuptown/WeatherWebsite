@@ -17,7 +17,7 @@ import pickle
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
 
 import requests
 import eccodes
@@ -597,8 +597,19 @@ ICON_BASE = 'https://opendata.dwd.de/weather/nwp/icon-eu/grib'
 ICON_LEVELS_HPA = [1000, 950, 925, 900, 875, 850, 825, 800, 775, 700,
                    600, 500, 400, 300, 250, 200, 150, 100, 70, 50]
 ICON_VARS = ('u', 'v', 'fi')
-ICON_DOWNLOAD_WORKERS = 3
+# 8 потоков с keep-alive выжимают из DWD ~15 МБ/с; при 16 сервер начинает тормозить.
+ICON_DOWNLOAD_WORKERS = 8
+ICON_CACHE_KEEP_HOURS = 12           # прогоны старше этого удаляются из .icon_cache
 GRAVITY = 9.80665
+
+_icon_thread = local()
+
+
+def _icon_session() -> requests.Session:
+    """Своя сессия на поток: соединение с DWD переиспользуется, а не открывается на каждый файл."""
+    if not hasattr(_icon_thread, 'session'):
+        _icon_thread.session = requests.Session()
+    return _icon_thread.session
 
 
 def _icon_cache_dir() -> Path:
@@ -625,7 +636,7 @@ def _icon_download(run_dt: datetime, step: int, level: int, var: str) -> Path:
     url = _icon_url(run_dt, step, level, var)
     for attempt in range(3):            # DWD иногда обрывает соединение
         try:
-            response = requests.get(url, timeout=60)
+            response = _icon_session().get(url, timeout=60)
             break
         except requests.ConnectionError:
             if attempt == 2:
@@ -671,6 +682,21 @@ def _icon_read(path: Path, lat: float, lon: float, margin: float) -> dict:
     }
 
 
+def _icon_clean_cache(keep_run: datetime) -> None:
+    """Удаляет файлы старых прогонов: с каждым новым прогоном кэш иначе растёт на сотни МБ."""
+    border = datetime.utcnow() - timedelta(hours=ICON_CACHE_KEEP_HOURS)
+    for path in _icon_cache_dir().iterdir():
+        try:
+            run = datetime.strptime(path.name[:10], '%Y%m%d%H')
+        except ValueError:
+            continue
+        if run < border and run != keep_run:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:             # файл сейчас читает другой расчёт (Windows)
+                pass
+
+
 def _icon_steps(start_h: float, end_h: float) -> list:
     """Часы прогноза ICON-EU, покрывающие полёт: каждый час до 78, дальше раз в 3 часа."""
     available = list(range(0, 79)) + list(range(81, 121, 3))
@@ -692,7 +718,7 @@ def _icon_run_dt(launch_dt: datetime, flight_hours: float) -> tuple:
         if 0 <= start_h and start_h + flight_hours <= 120:
             steps = _icon_steps(start_h, start_h + flight_hours)
             probe = _icon_url(run, steps[-1], ICON_LEVELS_HPA[-1], 'v')
-            if requests.head(probe, timeout=15).status_code == 200:
+            if _icon_session().head(probe, timeout=15).status_code == 200:
                 return run, steps
         run -= timedelta(hours=6)
     raise ValueError(
@@ -803,6 +829,7 @@ def build_icon_dataset(lat: float, lon: float,
         )
 
     run_dt, steps = _icon_run_dt(launch_dt, flight_hours)
+    _icon_clean_cache(run_dt)
     jobs = [(step, level, var)
             for step in steps for level in ICON_LEVELS_HPA for var in ICON_VARS]
 
