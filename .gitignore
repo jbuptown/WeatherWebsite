@@ -37,3 +37,9 @@ Thumbs.db
 # Generated document previews and Microsoft Office lock files
 docx_render/
 ~$*.docx
+
+# ICON
+icon_lab/
+.icon_cache/
+*.grib2
+*.gpx
