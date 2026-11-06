@@ -888,7 +888,7 @@
           </div>
           <div class="model-info-section">
             <strong>ICON-EU · Европа</strong>
-            <p>Региональная модель немецкой метеослужбы DWD. Покрывает Европу и прилегающие территории. В приложении используется сетка 0.0625°.</p>
+            <p>Региональная модель немецкой метеослужбы DWD. Покрывает Европу и прилегающие территории. В приложении используется сетка 0.625°.</p>
             <a href="https://www.dwd.de/EN/ourservices/nwp_icon_tutorial/pdf_volume/icon_tutorial2025_en.pdf?__blob=publicationFile&amp;v=3" target="_blank" rel="noopener noreferrer">О модели ICON · PDF от DWD ↗</a>
           </div>
         </div>
@@ -939,6 +939,7 @@
       </select>
     </div>
   </div>
+
   <button id="btn-clear" onclick="clearTrajectory()">Очистить карту</button>
 </div>
 
@@ -1024,6 +1025,7 @@ function init() {
         placeStartMarker(lat, lon);
     });
     mapReady = true;
+    restoreTrajectories();
 
     if (pendingStart) {
         placeStartMarker(pendingStart.lat, pendingStart.lon);
@@ -1110,8 +1112,45 @@ let startMarker = null;
 let landMarker  = null;
 let burstMarker = null;
 let lastTrajectory = [];
-const trajectories = [];
+const SAVED_KEY = 'savedTrajectories';
+let trajectories = loadSaved();
 let nextTrajectoryId = 1;
+
+function loadSaved() {
+  const raw = localStorage.getItem(SAVED_KEY);
+  if (raw) {
+    return JSON.parse(raw);
+  } else {
+    return [];
+  }
+}
+
+function saveAll(list) {
+  try {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    showStatus('Не хватает места для сохранения', true);
+    return false;
+  }
+}
+
+function saveTrajectory(params, info, points) {
+  trajectories.push({
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    params,
+    info,
+    points,
+  });
+  if (!saveAll(trajectories)) {
+    trajectories.pop();
+  }
+}
+
+function restoreTrajectories() {
+  trajectories.forEach(t => drawTrajectory(t.points));
+}
 const todayUtc = new Date();
 const earliestHistoryDate = new Date(todayUtc);
 earliestHistoryDate.setUTCDate(
@@ -1969,7 +2008,6 @@ async function runPrediction() {
     return;
   }
 
-  clearTrajectory(false);
   placeStartMarker(lat, lon);
 
   document.getElementById('loading').classList.add('show');
@@ -2039,6 +2077,7 @@ async function runPrediction() {
     showStatus(body.gfs_mode === 'icon'
       ? 'Удачный расчёт'
       : `Траектория готова · ${inf.source || 'NOAA GFS AWS'}${gridText} · ${data.trajectory.length} точек`);
+    saveTrajectory(body, inf, data.trajectory);
 
   } catch (err) {
     showStatus('Ошибка: ' + err.message, true);
@@ -2102,7 +2141,6 @@ function drawTrajectory(points, startLat, startLon) {
     if (points[k].phase === 'ascent') { burstIdx = k; break; }
   }
   const burstPt = burstIdx >= 0 ? points[burstIdx] : null;
-  if (burstMarker) burstMarker.remove();
   if (burstPt) {
     const burstMarkerbody = `Высота: <b>${Math.round(burstPt.alt)} м</b><br>` +
         balloonPressure(burstPt) +
@@ -2115,7 +2153,6 @@ function drawTrajectory(points, startLat, startLon) {
 
   // ── Маркер финиша ──
   const last = points[points.length - 1];
-  if (landMarker) landMarker.remove();
   const landMarkerbody = balloonCoordinates(last.lat, last.lon) +
       balloonMotion(points, points.length - 1) +
       balloonTime(last.time);
@@ -2148,6 +2185,8 @@ function clearTrajectory(resetResult = true) {
   landMarker  = null;
   burstMarker = null;
   lastTrajectory = [];
+  trajectories = [];
+  saveAll(trajectories);
   document.getElementById('export-row').classList.remove('show');
   if (resetResult) {
     document.getElementById('res-lat').textContent = '—';

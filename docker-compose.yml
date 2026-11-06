@@ -21,6 +21,8 @@ services:
   worker:
     image: ghcr.io/jbuptown/weatherwebsite:latest
     command: python manage.py rqworker default
+    deploy:
+      replicas: 4
     env_file: .env
     environment:
       REDIS_HOST: redis
