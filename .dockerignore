@@ -1,0 +1,14 @@
+venv/
+.venv/
+.git/
+.github/
+.idea/
+.claude/
+.gfs_cache/
+.icon_cache/
+.terrain_cache/
+staticfiles/
+db.sqlite3
+__pycache__/
+*.pyc
+.env

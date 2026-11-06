@@ -49,6 +49,13 @@ python manage.py rqworker default
 # Windows: python manage.py rqworker default --worker-class rq.SimpleWorker
 ```
 
+На Windows вместо Redis можно использовать службу Memurai на `127.0.0.1:6379`.
+Для запуска обработчика из установленного окружения `.venv` запустите
+`start-worker.cmd`. Для двух параллельных расчётов запустите его в двух
+терминалах. Остановка обработчика — `Ctrl+C` в его терминале.
+Memurai Developer предназначен для разработки и тестирования и требует
+перезапуска после 10 дней непрерывной работы.
+
 Откройте http://127.0.0.1:8000
 
 ---

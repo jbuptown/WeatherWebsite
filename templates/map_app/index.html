@@ -14,12 +14,42 @@
   <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 
   <style>
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url("{% static 'map_app/fonts/JetBrainsMono-Regular.woff2' %}") format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url("{% static 'map_app/fonts/JetBrainsMono-SemiBold.woff2' %}") format('woff2');
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: 'JetBrains Mono';
+      src: url("{% static 'map_app/fonts/JetBrainsMono-Bold.woff2' %}") format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+    :root {
+      --font-ui: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+    }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: var(--font-ui);
       height: 100vh;
       overflow: hidden;
+    }
+
+    /* Единый шрифт, включая элементы карты со своими стилями Leaflet. */
+    input, select, button, textarea,
+    .leaflet-container, .leaflet-tooltip, .leaflet-control {
+      font-family: var(--font-ui);
     }
 
     /* ── Карта занимает всю область просмотра ── */
@@ -139,7 +169,7 @@
       margin-bottom: 9px;
     }
     .field-row label {
-      font-size: 11px;
+      font-size: 12px;
       color: #7c4dff;
       font-weight: 600;
       letter-spacing: .3px;
@@ -151,7 +181,7 @@
       border: 1px solid #e2e2e2;
       border-radius: 20px;
       padding: 8px 14px;
-      font-size: 13px;
+      font-size: 14px;
       color: #333;
       background: #fafafa;
       outline: none;
@@ -362,7 +392,7 @@
     /* ── Легенда ── */
     #legend {
       position: fixed;
-      bottom: 65px; right: 24px;
+      bottom: 80px; right: 10px;
       z-index: 100;
       background: #fff;
       border-radius: 12px;
@@ -373,7 +403,7 @@
       gap: 6px;
     }
     #legend.show { display: flex; }
-    .leg-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #444; }
+    .leg-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #444; }
     .leg-dot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
    /* ── Тёмное всплывающее окно Leaflet ── */
     .dark-popup .leaflet-popup-content-wrapper,
@@ -383,16 +413,37 @@
       color: #fff;
     }
     .dark-popup .leaflet-popup-content-wrapper {
-      border-radius: 6px;
-      box-shadow: 0 8px 28px rgba(0,0,0,.45);
+      border-radius: 10px;
+      border-color: #45403b;
+      box-shadow: 0 12px 36px rgba(0,0,0,.4);
     }
     .dark-popup .leaflet-popup-content {
-      margin: 12px 36px 12px 14px;
-      font-size: 13px;
-      white-space: nowrap;
+      margin: 16px;
+      min-width: 290px;
+      max-width: calc(100vw - 64px);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      line-height: 1.7;
+      font-variant-numeric: tabular-nums;
+      white-space: normal;
+      text-align: left;
     }
     .dark-popup .leaflet-popup-close-button {
-      color: var(--white-soft);
+      top: 10px;
+      right: 10px;
+      border-radius: 5px;
+      color: #aaa;
+    }
+    .dark-popup .leaflet-popup-close-button:hover {
+      background: var(--ink-muted);
+      color: var(--orange-soft);
+    }
+    @media (max-width: 400px) {
+      .dark-popup .leaflet-popup-content {
+        min-width: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
     }
     /* ── Всплывающее окно (балун) над точкой ── */
     .ymap-balloon {
@@ -402,8 +453,8 @@
       border-radius: 6px;
       box-shadow: 0 8px 28px rgba(0,0,0,.45);
       padding: 12px 36px 12px 14px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 13px;
+      font-family: var(--font-ui);
+      font-size: 14px;
       color: #fff;
       min-width: 170px;
       white-space: nowrap;
@@ -435,12 +486,16 @@
     }
     .popup-title {
       font-weight: 700;
-      font-size: 14px;
+      font-size: 16px;
+      line-height: 1.3;
       color: #fff;
-      margin-bottom: 6px;
+      text-align: left;
+      padding: 0 24px 10px 0;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #38312b;
     }
-    .popup-row  { color: #bbb; margin-bottom: 2px; }
-    .popup-row b, .popup-row span { font-weight: 600; color: #fff; }
+    .popup-row { color: #b0ada9; text-align: left; margin: 0; }
+    .popup-row b, .popup-row span { font-weight: 600; color: #f5f3ef; }
 
     /* ── Точечные маркеры старта, финиша и разрыва ── */
     .balloon-marker, .flag-marker, .burst-marker { cursor: pointer; }
@@ -609,7 +664,11 @@
         min-height: 44px;
         font-size: 16px;
       }
-      #legend { right: 10px; bottom: 10px; }
+      #legend {
+        right: 10px;
+        left: auto;
+        bottom: 100px;
+      }
       #status-bar {
         bottom: 12px;
         white-space: normal;
@@ -617,43 +676,128 @@
       }
     }
 
-    /* ── Линейка: серый полупрозрачный стиль ── */
+    /* ── Линейка: общая чёрно-оранжевая тема ── */
     .ruler-control {
-      border: 1px solid rgba(80, 80, 80, 0.35) !important;
-      border-radius: 8px !important;
+      border: 1px solid #333 !important;
+      border-radius: 6px !important;
       overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+      box-shadow: 0 8px 28px rgba(0,0,0,.34) !important;
     }
     .ruler-control a {
       width: 36px !important;
       height: 36px !important;
       line-height: 36px !important;
       font-size: 18px;
-      background: rgba(120, 120, 120, 0.35) !important;
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      background: var(--ink) !important;
+      color: var(--orange-soft) !important;
       border: none !important;
-      transition: background 0.15s;
+      transition: background .2s, color .2s;
     }
     .ruler-control a:hover {
-      background: rgba(120, 120, 120, 0.5) !important;
+      background: var(--ink-muted) !important;
+      color: var(--orange) !important;
+    }
+    .ruler-control a:focus-visible {
+      outline: 2px solid var(--orange);
+      outline-offset: -3px;
     }
     .ruler-control a.active {
-      background: rgba(60, 60, 60, 0.6) !important;
+      background: var(--orange) !important;
+      color: var(--ink) !important;
+    }
+    .ruler-control a.active:hover {
+      background: #ff8b4a !important;
     }
     .ruler-label {
-      background: rgba(90, 90, 90, 0.55);
-      backdrop-filter: blur(3px);
-      -webkit-backdrop-filter: blur(3px);
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.25);
+      background: var(--ink);
+      color: var(--orange-soft);
+      border: 1px solid var(--orange-dark);
       border-radius: 6px;
       padding: 2px 7px;
       font-size: 12px;
       font-weight: 600;
-      box-shadow: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,.34);
     }
     .ruler-label::before { display: none; }
+
+    .model-info {
+      position: static;
+      flex-shrink: 0;
+      margin-left: auto;
+    }
+    .model-info-content {
+      position: fixed;
+      inset: auto;
+      margin: 0;
+      z-index: 200;
+      width: 240px;
+      max-width: calc(100vw - 20px);
+      padding: 14px;
+      background: var(--ink);
+      border: 1px solid var(--orange-dark);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+      font-size: 12px;
+      line-height: 1.5;
+      color: #bcbcbc;
+      max-height: calc(100dvh - 20px);
+      overflow-y: auto;
+    }
+    .model-info-section + .model-info-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #333;
+    }
+    .model-info-content strong {
+      display: block;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .model-info-content p {
+      margin: 5px 0 7px;
+    }
+    .model-info-button {
+      width: fit-content;
+      padding: 4px 6px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      font: inherit;
+      color: var(--orange-soft);
+      cursor: pointer;
+    }
+    .model-info-button:hover {
+      color: white;
+    }
+    .model-info-button:focus-visible,
+    .model-info-content a:focus-visible {
+      outline: 2px solid var(--orange);
+      outline-offset: 2px;
+    }
+    .model-info:has(:popover-open) .model-info-button {
+      background: var(--ink-muted);
+      color: var(--orange);
+    }
+    .model-info-content a {
+      display: block;
+      color: var(--orange-soft);
+      overflow-wrap: anywhere;
+      text-underline-offset: 3px;
+    }
+
+    .model-info-content a:hover {
+      color: white;
+    }
+    .model-heading {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
   </style>
 </head>
 <body>
@@ -665,12 +809,6 @@
 <div id="loading">
   <div class="spinner"></div>
   <p id="loading-msg">Загружаю данные ветра из NOAA GFS AWS…</p>
-</div>
-
-<!-- Приветственное окно -->
-<div class="card" id="bubble">
-  <p>Здравствуйте, здесь можно<br>рассчитать траекторию полёта!</p>
-  <button id="bubble-close" onclick="closeBubble()">✕</button>
 </div>
 
 <!-- Левое меню -->
@@ -738,11 +876,28 @@
     </div>
   </div>
   <div class="field-row">
-    <label>Модель / сетка</label>
+    <div class="model-heading">
+      <label for="inp-gfs-mode">Метеорологическая модель / сетка</label>
+      <div class="model-info">
+        <button type="button" id="model-info-button" class="model-info-button" popovertarget="model-info-popup" aria-label="О метеорологических моделях">ⓘ</button>
+        <div id="model-info-popup" class="model-info-content" popover>
+          <div class="model-info-section">
+            <strong>GFS · Весь мир</strong>
+            <p>Глобальная модель погоды NOAA. Её прогноз ветра используется для расчёта траектории. В приложении доступны сетки 1° и 0.5°.</p>
+            <a href="https://registry.opendata.aws/noaa-gfs-bdp-pds/" target="_blank" rel="noopener noreferrer">Описание и данные GFS ↗</a>
+          </div>
+          <div class="model-info-section">
+            <strong>ICON-EU · Европа</strong>
+            <p>Региональная модель немецкой метеослужбы DWD. Покрывает Европу и прилегающие территории. В приложении используется сетка 0.0625°.</p>
+            <a href="https://www.dwd.de/EN/ourservices/nwp_icon_tutorial/pdf_volume/icon_tutorial2025_en.pdf?__blob=publicationFile&amp;v=3" target="_blank" rel="noopener noreferrer">О модели ICON · PDF от DWD ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
     <div class="select-wrap">
       <select id="inp-gfs-mode">
-        <option value="approx">Приближенная 1.0°</option>
-        <option value="full">Точная 0.5°</option>
+        <option value="approx">GFS 1.0° (Весь мир)</option>
+        <option value="full">GFS 0.5° (Весь мир)</option>
         <option value="icon">ICON-EU 0.0625° (Европа)</option>
       </select>
     </div>
@@ -837,8 +992,8 @@ function init() {
     });
     const baseLayers = {
         'OpenStreetMap': osm,
-        'Топографическая': topo,
-        'Спутник': satellite,
+        'Топографическая - OpenTopoMap': topo,
+        'Сателлит - Esri': satellite,
         'Яндекс': yandex,
         'Яндекс Спутник': yandexSat
     };
@@ -879,9 +1034,12 @@ function init() {
 }
 function initRuler() {
   let lastPoint = null;
+  const theme = getComputedStyle(document.documentElement);
+  const rulerColor = theme.getPropertyValue('--orange').trim();
+  const rulerFill = theme.getPropertyValue('--ink').trim();
   const rulerMarkers = L.layerGroup().addTo(map);
   const rulerLine = L.polyline([], {
-    color: '#555', weight: 3, opacity: 0.6, dashArray: '6 6', interactive: false,
+    color: rulerColor, weight: 3, opacity: 0.9, dashArray: '6 6', interactive: false,
   }).addTo(map);
 
   map.on('click', function (e) {
@@ -889,8 +1047,8 @@ function initRuler() {
 
     rulerLine.addLatLng(e.latlng);
     L.circleMarker(e.latlng, {
-      radius: 4, color: '#555', weight: 2, opacity: 0.7,
-      fillColor: '#fff', fillOpacity: 0.6, interactive: false,
+      radius: 4, color: rulerColor, weight: 2, opacity: 1,
+      fillColor: rulerFill, fillOpacity: 1, interactive: false,
     })
       .addTo(rulerMarkers);
 
@@ -902,7 +1060,7 @@ function initRuler() {
       );
       L.tooltip({ permanent: true, direction: 'center', className: 'ruler-label' })
         .setLatLng(middle)
-        .setContent(Math.round(segment) + ' м')
+        .setContent((segment/1000).toFixed(1) + ' км')
         .addTo(rulerMarkers);
     }
     lastPoint = e.latlng;
@@ -917,13 +1075,17 @@ function initRuler() {
       const btn = document.createElement('a');
       btn.href = '#';
       btn.title = 'Линейка';
-      btn.textContent = '📏';
+      btn.setAttribute('aria-label', 'Линейка');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('role', 'button');
+      btn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 16 16 3l5 5L8 21zM13 6l2 2M10 9l3 3M7 12l2 2M4 15l3 3"/></svg>';
       box.appendChild(btn);
 
       btn.addEventListener('click', function (e) {
         e.preventDefault();
         rulerOn = !rulerOn;
         btn.classList.toggle('active', rulerOn);
+        btn.setAttribute('aria-pressed', String(rulerOn));
         if (rulerOn) {
           map.doubleClickZoom.disable();
           map.getContainer().style.cursor = 'crosshair';
@@ -948,7 +1110,8 @@ let startMarker = null;
 let landMarker  = null;
 let burstMarker = null;
 let lastTrajectory = [];
-
+const trajectories = [];
+let nextTrajectoryId = 1;
 const todayUtc = new Date();
 const earliestHistoryDate = new Date(todayUtc);
 earliestHistoryDate.setUTCDate(
@@ -1078,9 +1241,17 @@ function trackMotion(points, index) {
 // Блок координат для балуна: десятичные градусы, градусы/минуты/секунды
 // и прямоугольные координаты СК-42 (Гаусса-Крюгера).
 function balloonCoordinates(lat, lon) {
-  const gk = toSk42Gk(lat, lon);
   return `Широта: <b>${lat.toFixed(4)}</b>&nbsp;&nbsp;Долгота: <b>${lon.toFixed(4)}</b><br>` +
-    `GEO: <b>${formatIcao(lat, lon)}</b></br>`;
+    `ГЕО Точка: <b>${formatIcao(lat, lon)}</b><br>`;
+}
+
+function balloonTime(time) {
+  const timestamp = Date.parse(time || '');
+  if (!Number.isFinite(timestamp)) return 'Время: <b>—</b>';
+  // Округляем до ближайшей секунды, включая переход на следующую минуту или дату.
+  const rounded = new Date(Math.round(timestamp / 1000) * 1000);
+  const text = rounded.toISOString().slice(0, 19).replace('T', ' ');
+  return `Время: <b>${text} UTC</b>`;
 }
 
 // Давление приходит из GFS; у старых расчётов его может не быть.
@@ -1094,7 +1265,7 @@ function balloonMotion(points, index) {
   const motion = trackMotion(points, index);
   if (!motion) return '';
   return `Скорость: <b>${motion.speed.toFixed(1)} м/с</b> <b>${(motion.speed * 3.6).toFixed(1)} км/ч</b><br>` +
-         `Азимут: <b>${formatBearing(motion.bearing)}</b><br>`;
+    `Азимут: <b>${formatBearing(motion.bearing)}</b><br>`;
 }
 
 // Полётное время отсчитывается не от старта, а от момента, когда зонд на подъёме
@@ -1325,7 +1496,7 @@ function kmlDescription(points, index, header = '') {
     + balloonPressure(p)
     + balloonCoordinates(p.lat, p.lon)
     + balloonMotion(points, index)
-    + `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`;
+    + balloonTime(p.time);
   return `<![CDATA[${body.replace(/]]>/g, ']]&gt;')}]]>`;
 }
 
@@ -1895,6 +2066,7 @@ function phaseSegments(points) {
 // ─────────────── Отрисовка траектории ───────────
 function drawTrajectory(points, startLat, startLon) {
   if (!points || !points.length) return;
+  const trajectoryLayer = L.layerGroup().addTo(trajCollection);
   lastTrajectory = points;
   document.getElementById('export-row').classList.add('show');
 
@@ -1913,9 +2085,9 @@ function drawTrajectory(points, startLat, startLon) {
   for (let k = step; k < points.length - step; k += step) {
     const p = points[k];
     const body =
-      `Время: <b>${(p.time || '').replace('T', ' ').replace('Z', '')} UTC</b></br>` +
+      balloonTime(p.time) + '<br>' +
       balloonCoordinates(p.lat, p.lon) +
-      `Высота: <b>${Math.round(p.alt)} </b>&nbsp;&nbsp;` +
+      `Высота: <b>${Math.round(p.alt)} м</b>&nbsp;&nbsp;` +
       balloonPressure(p) +
       balloonMotion(points, k);
 
@@ -1936,7 +2108,7 @@ function drawTrajectory(points, startLat, startLon) {
         balloonPressure(burstPt) +
         balloonCoordinates(burstPt.lat, burstPt.lon) +
         balloonMotion(points, burstIdx) +
-        `Время: <b>${(burstPt.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`
+        balloonTime(burstPt.time);
     burstMarker = L.circleMarker([burstPt.lat, burstPt.lon], dotStyle('#ffffff', '#111111'))
     .bindPopup(popupHtml('Точка разрыва', burstMarkerbody), {className: 'dark-popup'}).addTo(trajCollection);
   }
@@ -1946,7 +2118,7 @@ function drawTrajectory(points, startLat, startLon) {
   if (landMarker) landMarker.remove();
   const landMarkerbody = balloonCoordinates(last.lat, last.lon) +
       balloonMotion(points, points.length - 1) +
-      `<br>Время: <b>${(last.time || '').replace('T', ' ').replace('Z', '')} UTC</b>`;
+      balloonTime(last.time);
   landMarker = L.circleMarker([last.lat, last.lon], dotStyle('#df715f', '#ffffff'))
   .bindPopup(popupHtml('Точка финиша', landMarkerbody), {className: 'dark-popup'}).addTo(trajCollection)
 
@@ -2001,6 +2173,27 @@ function getCsrfToken() {
     '#csrf-form input[name="csrfmiddlewaretoken"]'
   )?.value || '';
 }
+
+// Popover выводится поверх меню и не обрезается его прокруткой.
+const modelInfoButton = document.getElementById('model-info-button');
+const modelInfoPopup = document.getElementById('model-info-popup');
+function positionModelInfo() {
+  if (!modelInfoPopup.matches(':popover-open')) return;
+  const anchor = modelInfoButton.getBoundingClientRect();
+  const padding = 10;
+  const width = modelInfoPopup.offsetWidth;
+  const height = modelInfoPopup.offsetHeight;
+  // Нижний левый угол у значка; на узком экране остаёмся в его пределах.
+  const left = Math.max(padding, Math.min(anchor.right, window.innerWidth - width - padding));
+  const top = Math.max(padding, Math.min(anchor.top - height, window.innerHeight - height - padding));
+  modelInfoPopup.style.left = `${left}px`;
+  modelInfoPopup.style.top = `${top}px`;
+}
+modelInfoPopup.addEventListener('toggle', positionModelInfo);
+window.addEventListener('resize', positionModelInfo);
+document.getElementById('menu').addEventListener('scroll', () => {
+  if (modelInfoPopup.matches(':popover-open')) modelInfoPopup.hidePopover();
+});
 
 const hasPredictParams = applyPredictQueryParams();
 init();
