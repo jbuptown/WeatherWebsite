@@ -1,0 +1,42 @@
+services:
+
+  web:
+    image: ghcr.io/jbuptown/weatherwebsite:latest
+    command: sh -c "python manage.py migrate --noinput && gunicorn mapsite.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+      DJANGO_DB_PATH: /data/db.sqlite3
+      WEATHER_GFS_CACHE: /data/gfs_cache
+      WEATHER_ICON_CACHE: /data/icon_cache
+      WEATHER_TERRAIN_CACHE: /data/terrain_cache
+    volumes:
+      - appdata:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    image: ghcr.io/jbuptown/weatherwebsite:latest
+    command: python manage.py rqworker default
+    env_file: .env
+    environment:
+      REDIS_HOST: redis
+      DJANGO_DB_PATH: /data/db.sqlite3
+      WEATHER_GFS_CACHE: /data/gfs_cache
+      WEATHER_ICON_CACHE: /data/icon_cache
+      WEATHER_TERRAIN_CACHE: /data/terrain_cache
+    volumes:
+      - appdata:/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  appdata:

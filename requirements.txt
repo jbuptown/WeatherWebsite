@@ -7,3 +7,4 @@ django-cors-headers>=4.7.0
 django-rq>=3.0
 rq>=2.0
 redis>=5.0
+whitenoise>=6.6

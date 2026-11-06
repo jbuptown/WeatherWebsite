@@ -613,7 +613,12 @@ def _icon_session() -> requests.Session:
 
 
 def _icon_cache_dir() -> Path:
-    path = Path(__file__).resolve().parent.parent / '.icon_cache'
+    configured = os.environ.get("WEATHER_ICON_CACHE")
+    path = (
+        Path(configured)
+        if configured
+        else Path(__file__).resolve().parent.parent / ".icon_cache"
+    )
     path.mkdir(parents=True, exist_ok=True)
     return path
 
