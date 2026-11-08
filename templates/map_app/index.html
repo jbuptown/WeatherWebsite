@@ -611,6 +611,14 @@
       color: #fff;
     }
     #btn-clear:hover { background: #293137; border-color: var(--white-soft); }
+    #app-version {
+      margin-top: auto;
+      padding-top: 12px;
+      font-size: 11px;
+      color: var(--white-soft);
+      text-align: center;
+      flex-shrink: 0;
+    }
     #btn-export:hover {
       background: #2fbf70;
       border-color: #62d596;
@@ -642,6 +650,85 @@
     .start-dot { background: var(--ascent-green); }
     .finish-dot { background: var(--coral); border-color: #fff; }
     .burst-dot { background: #fff; border-color: #111; }
+    #traj-panel {
+      bottom: 175px;
+      right: 10px;
+      width: 290px;
+      max-height: calc(100% - 250px);
+      padding: 16px;
+      overflow-y: auto;
+    }
+    #traj-panel h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+    #traj-list {
+      font-size: 13px;
+      color: var(--white-soft);
+    }
+    .traj-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #2f2f2f;
+    }
+    .traj-item:last-child { border-bottom: none; }
+    .traj-title {
+      color: #fff;
+      font-weight: 600;
+    }
+    .traj-desc {
+      margin-top: 2px;
+      white-space: pre-line;
+    }
+      .traj-item {
+      position: relative;
+      padding-right: 24px;
+      cursor: pointer;
+    }
+    .traj-item:hover .traj-title { color: var(--orange); }
+    .traj-delete {
+      position: absolute;
+      top: 6px;
+      right: 0;
+      border: none;
+      background: none;
+      color: var(--orange);
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .traj-delete:hover { color: #ff7b69; }
+#btn-traj-open { display: none; }
+body:not(.has-trajectories) #traj-panel,
+body:not(.has-trajectories) #btn-traj-open {
+  display: none;
+}
+
+    @media (max-width: 700px) {
+      #traj-panel {
+        display: none;
+        top: 120px;
+        bottom: auto;
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-height: calc(100% - 320px);
+        z-index: 99;
+      }
+      #traj-panel.open { display: block; }
+      #btn-traj-open {
+        display: block;
+        position: fixed;
+        top: 70px;
+        right: 10px;
+        z-index: 99;
+        padding: 10px 14px;
+        border: 1px solid #333;
+        border-radius: 6px;
+        background: var(--ink);
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+      }
+    }
     @media (max-width: 700px) {
       #menu {
         display: none;
@@ -854,12 +941,30 @@
   </div>
   <div class="row-2">
     <div class="field-row" id="field-float-alt">
-      <label>Высота дрейфа (м)</label>
-      <input id="inp-float-alt" type="text" inputmode="decimal" value="5000" />
+      <label>Высота дрейфа</label>
+      <div class="duration-control">
+        <input id="inp-float-alt" type="text" inputmode="decimal" value="5000" />
+        <div class="select-wrap">
+          <select id="inp-float-alt-unit">
+            <option value="m">м</option>
+            <option value="hpa">гПа</option>
+          </select>
+        </div>
+      </div>
+      <div id="inp-float-alt-conversion" class="duration-conversion"></div>
     </div>
     <div class="field-row" id="field-burst-alt">
-      <label>Высота разрыва (м)</label>
-      <input id="inp-burst" type="text" inputmode="decimal" value="30000" />
+      <label>Высота разрыва</label>
+      <div class="duration-control">
+        <input id="inp-burst" type="text" inputmode="decimal" value="30000" />
+        <div class="select-wrap">
+          <select id="inp-burst-unit">
+            <option value="m">м</option>
+            <option value="hpa">гПа</option>
+          </select>
+        </div>
+      </div>
+      <div id="inp-burst-conversion" class="duration-conversion"></div>
     </div>
   </div>
   <div class="field-row">
@@ -941,8 +1046,14 @@
   </div>
 
   <button id="btn-clear" onclick="clearTrajectory()">Очистить карту</button>
+  <div id="app-version">Версия 1ПТ1026</div>
 </div>
 
+<div class="card" id="traj-panel">
+  <h2>Траектории</h2>
+  <div id="traj-list">Пока пусто</div>
+</div>
+<button id="btn-traj-open" onclick="toggleTrajPanel()">Траектории</button>
 <!-- Кнопка открытия меню -->
 <button id="btn-menu-open" onclick="toggleMenu()">☰</button>
 
@@ -1146,16 +1257,79 @@ function saveTrajectory(params, info, points) {
   if (!saveAll(trajectories)) {
     trajectories.pop();
   }
+  renderTrajectoryList();
 }
+function zoomToTrajectory(t) {
+  map.fitBounds(t.points.map(p => [p.lat, p.lon]), { padding: [40, 40] });
+  if (isMobileLayout()){
+    document.getElementById('traj-panel').classList.remove('open');
+  }
+}
+function toggleTrajPanel() {
+  document.getElementById('traj-panel').classList.toggle('open');
+}
+function deleteTrajectory(id) {
+  trajectories = trajectories.filter(trajectory => trajectory.id !== id);
+  if (trajectories.length === 0) {
+    clearTrajectory();
+    return;
+  }
+  saveAll(trajectories);
+  trajCollection.clearLayers();
+  restoreTrajectories();
+}
+function renderTrajectoryList() {
+  const list = document.getElementById('traj-list');
+  list.innerHTML = '';
+  document.body.classList.toggle('has-trajectories', trajectories.length > 0);
 
+  if (trajectories.length === 0) {
+    list.textContent = 'Пока пусто';
+    return;
+  }
+
+  trajectories.forEach((t, i) => {
+    const last = t.points[t.points.length - 1];
+
+    const title = document.createElement('div');
+    title.className = 'traj-title';
+    title.textContent = `${i + 1}. ${t.params.launch_date} ${t.params.launch_time} UTC`;
+
+    const desc = document.createElement('div');
+    desc.className = 'traj-desc';
+    const p = t.params;
+    const isFloat = p.profile === 'float_profile';
+    desc.textContent = [
+      `Подъём ${p.ascent_rate} м/с · спуск ${p.descent_rate} м/с`,
+      isFloat
+        ? `Дрейф на ${p.float_altitude} м · ${+(p.max_float_seconds / 3600).toFixed(1)} ч`
+        : `Разрыв на ${p.burst_altitude} м`,
+      `Старт ${p.latitude}, ${p.longitude}`,
+      `Финиш ${last.lat.toFixed(4)}, ${last.lon.toFixed(4)}`,
+    ].join('\n');
+
+    const item = document.createElement('div');
+    item.className = 'traj-item';
+    const del = document.createElement('button');
+    del.className = 'traj-delete';
+    del.textContent = '✕';
+    del.title = 'Удалить';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      deleteTrajectory(t.id);
+    });
+
+    item.addEventListener('click', () => zoomToTrajectory(t));
+    item.append(del, title, desc);
+    list.append(item);
+  });
+}
 function restoreTrajectories() {
   trajectories.forEach(t => drawTrajectory(t.points));
+  renderTrajectoryList();
 }
 const todayUtc = new Date();
-const earliestHistoryDate = new Date(todayUtc);
-earliestHistoryDate.setUTCDate(
-  earliestHistoryDate.getUTCDate() - 8
-);
+const earliestHistoryDate = new Date(Date.UTC(2021, 2, 22));
 const latestForecastDate = new Date(todayUtc);
 latestForecastDate.setUTCDate(
   latestForecastDate.getUTCDate() + 15
@@ -1201,6 +1375,65 @@ function readDurationSeconds(id, fallbackSeconds) {
   const valid = Number.isFinite(seconds) && seconds > 0;
   input.classList.toggle('input-error', !valid);
   return valid ? seconds : fallbackSeconds;
+}
+
+// Стандартная атмосфера ICAO — та же формула, что altitude_to_pressure в trajectory.py.
+function altitudeToPressure(h) {
+  h = Math.max(0, h);
+  if (h <= 11000) return 1013.25 * ((288.15 - 0.0065 * h) / 288.15) ** 5.2561;
+  if (h <= 20000) return 226.32 * Math.exp(-0.0001577 * (h - 11000));
+  if (h <= 32000) return 54.749 * (216.65 / (216.65 + 0.001 * (h - 20000))) ** 34.1626;
+  return 8.6802 * (228.65 / (228.65 + 0.0028 * (h - 32000))) ** 13.2;
+}
+
+function pressureToAltitude(p) {
+  let lo = 0, hi = 50000;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (altitudeToPressure(mid) > p) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+const ALTITUDE_LIMITS = {
+  'inp-float-alt': { min: 100, max: 45000 },
+  'inp-burst': { min: 1000, max: 50000 },
+};
+
+function altitudeMeters(id) {
+  const raw = parsePredictNumber(document.getElementById(id).value, NaN);
+  const unit = document.getElementById(`${id}-unit`).value;
+  const { min, max } = ALTITUDE_LIMITS[id];
+  if (unit === 'hpa') {
+    const valid = raw <= altitudeToPressure(min) && raw >= altitudeToPressure(max);
+    return valid ? Math.round(pressureToAltitude(raw)) : NaN;
+  }
+  return raw >= min && raw <= max ? raw : NaN;
+}
+
+function readAltitudeMeters(id, fallback) {
+  const meters = altitudeMeters(id);
+  document.getElementById(id).classList.toggle('input-error', !Number.isFinite(meters));
+  return Number.isFinite(meters) ? meters : fallback;
+}
+
+function syncAltitudeConversion(id) {
+  const output = document.getElementById(`${id}-conversion`);
+  const unit = document.getElementById(`${id}-unit`).value;
+  const meters = altitudeMeters(id);
+  document.getElementById(id).classList.toggle('input-error', !Number.isFinite(meters));
+
+  if (!Number.isFinite(meters)) {
+    const { min, max } = ALTITUDE_LIMITS[id];
+    output.textContent = unit === 'hpa'
+      ? `Допустимо от ${formatCompactNumber(altitudeToPressure(max), 1)} до ${formatCompactNumber(altitudeToPressure(min), 1)} гПа`
+      : `Допустимо от ${min.toLocaleString('ru-RU')} до ${max.toLocaleString('ru-RU')} м`;
+    return;
+  }
+
+  output.textContent = unit === 'hpa'
+    ? `≈ ${Math.round(meters).toLocaleString('ru-RU')} м`
+    : `≈ ${formatCompactNumber(altitudeToPressure(meters), 1)} гПа`;
 }
 
 function formatCompactNumber(value, digits = 2) {
@@ -1281,7 +1514,7 @@ function trackMotion(points, index) {
 // и прямоугольные координаты СК-42 (Гаусса-Крюгера).
 function balloonCoordinates(lat, lon) {
   return `Широта: <b>${lat.toFixed(4)}</b>&nbsp;&nbsp;Долгота: <b>${lon.toFixed(4)}</b><br>` +
-    `ГЕО Точка: <b>${formatIcao(lat, lon)}</b><br>`;
+    `г.т.: <b>${formatIcao(lat, lon)}</b><br>`;
 }
 
 function balloonTime(time) {
@@ -1776,6 +2009,8 @@ function applyPredictQueryParams() {
   document.getElementById('inp-ascent').value = ascentRate;
   document.getElementById('inp-float-alt').value = floatAltitude;
   document.getElementById('inp-burst').value = burstAltitude;
+  document.getElementById('inp-float-alt-unit').value = 'm';
+  document.getElementById('inp-burst-unit').value = 'm';
   document.getElementById('inp-descent').value = descentRate;
   if (Number.isFinite(maxFloatSeconds)) {
     setFloatDurationSeconds(maxFloatSeconds);
@@ -1808,6 +2043,8 @@ function onProfileChange() {
   const from = document.getElementById(isFloat ? 'inp-burst' : 'inp-float-alt');
   const to   = document.getElementById(isFloat ? 'inp-float-alt' : 'inp-burst');
   to.value = from.value;          // значение переезжает в поле, которое сейчас покажем
+  document.getElementById(`${to.id}-unit`).value = document.getElementById(`${from.id}-unit`).value;
+  syncAltitudeConversion(to.id);
   toggleFloatDuration();
 }
 // ─────────────── Переключатель времени дрейфа ───
@@ -2023,8 +2260,8 @@ async function runPrediction() {
       launch_date:    document.getElementById('inp-date').value,
       launch_time:    document.getElementById('inp-time').value,
       ascent_rate:      readNumber('inp-ascent', 3, 0.1),
-      float_altitude:   readNumber('inp-float-alt', 5000, 100, 45000),
-      burst_altitude:   readNumber('inp-burst', 30000, 1000, 50000),
+      float_altitude:   readAltitudeMeters('inp-float-alt', 5000),
+      burst_altitude:   readAltitudeMeters('inp-burst', 30000),
       descent_rate:     readNumber('inp-descent', 5, 0.1),
       profile:          document.getElementById('inp-profile').value,
       max_float_seconds: maxFloatSeconds,
@@ -2194,6 +2431,7 @@ function clearTrajectory(resetResult = true) {
     document.getElementById('result-section').style.display = 'none';
   }
   document.getElementById('legend').classList.remove('show');
+  renderTrajectoryList();
 }
 
 // ─────────────── Уведомление о состоянии ─────────
@@ -2238,6 +2476,11 @@ const hasPredictParams = applyPredictQueryParams();
 init();
 document.getElementById('inp-float-dur')?.addEventListener('input', syncFloatDurationConversion);
 document.getElementById('inp-float-dur-unit')?.addEventListener('change', syncFloatDurationConversion);
+['inp-float-alt', 'inp-burst'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => syncAltitudeConversion(id));
+  document.getElementById(`${id}-unit`).addEventListener('change', () => syncAltitudeConversion(id));
+  syncAltitudeConversion(id);
+});
 toggleFloatDuration();
 initResponsiveMenu();
 </script>
