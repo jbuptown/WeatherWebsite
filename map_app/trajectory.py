@@ -39,7 +39,7 @@ GFS_GRIDS = {
 }
 GFS_CACHE_VERSION = 3
 GFS_DOWNLOAD_WORKERS = 6
-GFS_HISTORY_DAYS = 8
+GFS_ARCHIVE_START = datetime(2021, 3, 22, 12)
 ECCODES_PARSE_LOCK = Lock()
 
 
@@ -107,13 +107,10 @@ def _gfs_run_dt(launch_dt: datetime) -> datetime:
     GFS runs every 6 h; files appear ~5 h after run time.
     """
     now = datetime.utcnow()
-    oldest = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    oldest -= timedelta(days=GFS_HISTORY_DAYS)
-    if launch_dt < oldest:
+    if launch_dt < GFS_ARCHIVE_START:
         raise ValueError(
-            f"Приложение поддерживает расчёт GFS примерно за "
-            f"{GFS_HISTORY_DAYS + 1} суток. Выберите дату не ранее "
-            f"{oldest.strftime('%Y-%m-%d')}"
+            "Архив GFS доступен с 22.03.2021 12:00 UTC. "
+            "Выберите дату запуска не раньше"
         )
 
     if launch_dt <= now - timedelta(hours=5):
