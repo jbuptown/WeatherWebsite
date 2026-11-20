@@ -885,6 +885,42 @@ body:not(.has-trajectories) #btn-traj-open {
       gap: 6px;
       position: relative;
     }
+    /* ── Кнопка «Копировать» рядом с координатами (значок вместо текста) ── */
+    .copy-btn {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 24px;
+      height: 24px;
+      margin-left: 6px;
+      padding: 0;
+      border: 1px solid var(--orange-dark);
+      border-radius: 5px;
+      background: transparent;
+      color: var(--orange-soft);
+      cursor: pointer;
+      vertical-align: middle;
+    }
+    .copy-btn::before {
+      content: '';
+      width: 14px;
+      height: 14px;
+      background: currentColor;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='12' height='12' rx='2'/%3E%3Cpath d='M5 15V5a2 2 0 0 1 2-2h10'/%3E%3C/svg%3E") center / contain no-repeat;
+              mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='12' height='12' rx='2'/%3E%3Cpath d='M5 15V5a2 2 0 0 1 2-2h10'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+    .copy-btn.copied::before {
+      -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12l5 5L20 6'/%3E%3C/svg%3E");
+              mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12l5 5L20 6'/%3E%3C/svg%3E");
+    }
+    .copy-btn:hover { border-color: var(--orange); color: var(--orange); }
+    .copy-btn.copied { border-color: #3f9b58; color: #6fd08a; }
+    .coord-inputs .copy-btn,
+    .result-coords .copy-btn { width: 34px; height: auto; align-self: stretch; margin-left: 0; }
+    .copy-row { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+    .copy-row .copy-btn { margin-left: 0; }
+    .nowrap { white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -911,10 +947,10 @@ body:not(.has-trajectories) #btn-traj-open {
   <div class="field-row">
     <label>Координаты старта</label>
     <div class="coord-inputs">
-      <input id="inp-lat" type="text" inputmode="decimal"
-             placeholder="Широта" title="Широта, например 55.7558 или 55,7558" />
-      <input id="inp-lon" type="text" inputmode="decimal"
-             placeholder="Долгота" title="Долгота, например 37.6176 или 37,6176" />
+      <input id="inp-coords" type="text"
+             placeholder="55.900816, 37.547681" title="Широта и долгота через запятую, например 55.900816, 37.547681" />
+      <button type="button" class="copy-btn" title="Копировать" aria-label="Копировать"
+              onclick="copyText(document.getElementById('inp-coords').value, this)"></button>
     </div>
   </div>
   <div class="field-row">
@@ -1027,8 +1063,9 @@ body:not(.has-trajectories) #btn-traj-open {
     <div class="field-row" style="margin-bottom:0">
       <label>Координаты финиша</label>
       <div class="result-coords">
-        <span id="res-lat">—</span>
-        <span id="res-lon">—</span>
+        <span id="res-coords">—</span>
+        <button type="button" class="copy-btn" title="Копировать" aria-label="Копировать"
+                onclick="copyText(document.getElementById('res-coords').textContent, this)"></button>
       </div>
     </div>
   </div>
@@ -1129,10 +1166,9 @@ function init() {
     initRuler();
     map.on('click', function (e) {
       if (rulerOn) return;
-        const lat = Number(e.latlng.lat.toFixed(4));
-        const lon = Number(e.latlng.lng.toFixed(4));
-        document.getElementById('inp-lat').value = lat;
-        document.getElementById('inp-lon').value = lon;
+        const lat = Number(e.latlng.lat.toFixed(6));
+        const lon = Number(e.latlng.lng.toFixed(6));
+        document.getElementById('inp-coords').value = formatCoords(lat, lon);
         placeStartMarker(lat, lon);
     });
     mapReady = true;
@@ -1304,9 +1340,11 @@ function renderTrajectoryList() {
       isFloat
         ? `Дрейф на ${p.float_altitude} м · ${+(p.max_float_seconds / 3600).toFixed(1)} ч`
         : `Разрыв на ${p.burst_altitude} м`,
-      `Старт ${p.latitude}, ${p.longitude}`,
-      `Финиш ${last.lat.toFixed(4)}, ${last.lon.toFixed(4)}`,
     ].join('\n');
+    desc.append(
+      copyRow('Старт', formatCoords(p.latitude, p.longitude)),
+      copyRow('Финиш', formatCoords(last.lat, last.lon)),
+    );
 
     const item = document.createElement('div');
     item.className = 'traj-item';
@@ -1356,6 +1394,23 @@ function readNumber(id, fallback, min = -Infinity, max = Infinity) {
   const valid = Number.isFinite(value) && value >= min && value <= max;
   input.classList.toggle('input-error', !valid);
   return valid ? value : fallback;
+}
+
+// Читает окно «широта, долгота» и возвращает { lat, lon }.
+// Если что-то не так, подсвечивает окно красным и возвращает NaN.
+function readCoords() {
+  const input = document.getElementById('inp-coords');
+  const parts = input.value.split(',');   // "55.7, 37.6" → ["55.7", " 37.6"]
+
+  const lat = parsePredictNumber(parts[0], NaN);
+  const lon = parsePredictNumber(parts[1], NaN);
+
+  const valid = parts.length === 2
+    && Number.isFinite(lat) && lat >= -90 && lat <= 90
+    && Number.isFinite(lon) && lon >= -180 && lon <= 180;
+
+  input.classList.toggle('input-error', !valid);
+  return valid ? { lat, lon } : { lat: NaN, lon: NaN };
 }
 
 function setFloatDurationSeconds(totalSeconds) {
@@ -1510,10 +1565,61 @@ function trackMotion(points, index) {
   };
 }
 
+// Копирует текст в буфер обмена и на секунду меняет значок на галочку.
+// navigator.clipboard работает только на https и localhost, поэтому для
+// сайта по http есть запасной способ через временное текстовое поле.
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+  if (button) {
+    button.classList.add('copied');
+    setTimeout(() => button.classList.remove('copied'), 1200);
+  }
+}
+
+// Строка «Подпись 55.900816, 37.547681 [Копировать]» для списка траекторий.
+function copyRow(label, coords) {
+  const row = document.createElement('div');
+  row.className = 'copy-row';
+  const text = document.createElement('span');
+  const coordsText = document.createElement('span');
+  coordsText.className = 'nowrap';   // не разрывать «широта, долгота» на две строки
+  coordsText.textContent = coords;
+  text.append(`${label} `, coordsText);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'copy-btn';
+  button.title = 'Копировать';
+  button.setAttribute('aria-label', 'Копировать');
+  button.addEventListener('click', e => {
+    e.stopPropagation();   // иначе клик ещё и приблизит карту к траектории
+    copyText(coords, button);
+  });
+  row.append(text, button);
+  return row;
+}
+
+// Координаты одной строкой: «55.900816, 37.547681» — так же, как в окне ввода.
+function formatCoords(lat, lon) {
+  return `${Number(lat).toFixed(6)}, ${Number(lon).toFixed(6)}`;
+}
+
 // Блок координат для балуна: десятичные градусы, градусы/минуты/секунды
 // и прямоугольные координаты СК-42 (Гаусса-Крюгера).
-function balloonCoordinates(lat, lon) {
-  return `Широта: <b>${lat.toFixed(4)}</b>&nbsp;&nbsp;Долгота: <b>${lon.toFixed(4)}</b><br>` +
+// withCopy = false — без кнопки «Копировать» (для KML-файла, там кнопка не работает).
+function balloonCoordinates(lat, lon, withCopy = true) {
+  const text = formatCoords(lat, lon);
+  return `Координаты: <b>${text}</b>` + (!withCopy ? '<br>' :
+    `<button type="button" class="copy-btn" title="Копировать" aria-label="Копировать"` +
+    ` onclick="copyText('${text}', this)"></button><br>`) +
     `г.т.: <b>${formatIcao(lat, lon)}</b><br>`;
 }
 
@@ -1524,6 +1630,14 @@ function balloonTime(time) {
   const rounded = new Date(Math.round(timestamp / 1000) * 1000);
   const text = rounded.toISOString().slice(0, 19).replace('T', ' ');
   return `Время: <b>${text} UTC</b>`;
+}
+
+// «Секунд полёта: 1234 с» — сколько секунд прошло от прохода отметки 100 м
+// до этой точки. Считает так же, как столбец «Полетное время» в Excel
+// (функции flightStartTime и flightSecond ниже).
+function balloonFlightSecond(points, index) {
+  const seconds = flightSecond(points[index], flightStartTime(points), index);
+  return `<br>Секунд полёта: <b>${seconds} с</b>`;
 }
 
 // Давление приходит из GFS; у старых расчётов его может не быть.
@@ -1766,9 +1880,10 @@ function kmlDescription(points, index, header = '') {
     + `Фаза: <b>${PHASE_TITLES[p.phase] || p.phase}</b><br>`
     + `Высота: <b>${Math.round(p.alt)} м</b><br>`
     + balloonPressure(p)
-    + balloonCoordinates(p.lat, p.lon)
+    + balloonCoordinates(p.lat, p.lon, false)
     + balloonMotion(points, index)
-    + balloonTime(p.time);
+    + balloonTime(p.time)
+    + balloonFlightSecond(points, index);
   return `<![CDATA[${body.replace(/]]>/g, ']]&gt;')}]]>`;
 }
 
@@ -1865,7 +1980,7 @@ function buildTrajectoryKml(points) {
     : '';
 
   const title = `Траектория зонда ${(points[0].time || '').replace('T', ' ').replace('Z', '')} UTC`;
-  const summary = `Точек: ${points.length} · финиш ${last.lat.toFixed(4)}, ${last.lon.toFixed(4)}`;
+  const summary = `Точек: ${points.length} · финиш ${formatCoords(last.lat, last.lon)}`;
 
   return '<?xml version="1.0" encoding="UTF-8"?>\n'
     + '<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2">\n'
@@ -2003,8 +2118,9 @@ function applyPredictQueryParams() {
   const gfsMode = params.get('gfs_mode') || 'approx';
   const launchDateTime = params.get('launch_datetime');
 
-  if (Number.isFinite(lat)) document.getElementById('inp-lat').value = lat.toFixed(4);
-  if (Number.isFinite(lon)) document.getElementById('inp-lon').value = lon.toFixed(4);
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    document.getElementById('inp-coords').value = formatCoords(lat, lon);
+  }
   document.getElementById('inp-alt').value = altitude;
   document.getElementById('inp-ascent').value = ascentRate;
   document.getElementById('inp-float-alt').value = floatAltitude;
@@ -2237,8 +2353,7 @@ async function pollPrediction(taskId, baseMsg) {
 
 // ─────────────── Запуск расчёта ─────────────────
 async function runPrediction() {
-  const lat = readNumber('inp-lat', NaN, -90, 90);
-  const lon = readNumber('inp-lon', NaN, -180, 180);
+  const { lat, lon } = readCoords();
 
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
     showStatus('Кликните на карту или введите координаты старта', true);
@@ -2361,7 +2476,7 @@ function drawTrajectory(points, startLat, startLon) {
   for (let k = step; k < points.length - step; k += step) {
     const p = points[k];
     const body =
-      balloonTime(p.time) + '<br>' +
+      balloonTime(p.time) + balloonFlightSecond(points, k) + '<br>' +
       balloonCoordinates(p.lat, p.lon) +
       `Высота: <b>${Math.round(p.alt)} м</b>&nbsp;&nbsp;` +
       balloonPressure(p) +
@@ -2383,7 +2498,7 @@ function drawTrajectory(points, startLat, startLon) {
         balloonPressure(burstPt) +
         balloonCoordinates(burstPt.lat, burstPt.lon) +
         balloonMotion(points, burstIdx) +
-        balloonTime(burstPt.time);
+        balloonTime(burstPt.time) + balloonFlightSecond(points, burstIdx);
     burstMarker = L.circleMarker([burstPt.lat, burstPt.lon], dotStyle('#ffffff', '#111111'))
     .bindPopup(popupHtml('Точка разрыва', burstMarkerbody), {className: 'dark-popup'}).addTo(trajCollection);
   }
@@ -2392,13 +2507,12 @@ function drawTrajectory(points, startLat, startLon) {
   const last = points[points.length - 1];
   const landMarkerbody = balloonCoordinates(last.lat, last.lon) +
       balloonMotion(points, points.length - 1) +
-      balloonTime(last.time);
+      balloonTime(last.time) + balloonFlightSecond(points, points.length - 1);
   landMarker = L.circleMarker([last.lat, last.lon], dotStyle('#df715f', '#ffffff'))
   .bindPopup(popupHtml('Точка финиша', landMarkerbody), {className: 'dark-popup'}).addTo(trajCollection)
 
   // ── Координаты финиша в меню ──
-  document.getElementById('res-lat').textContent = last.lat.toFixed(4);
-  document.getElementById('res-lon').textContent = last.lon.toFixed(4);
+  document.getElementById('res-coords').textContent = formatCoords(last.lat, last.lon);
   document.getElementById('result-section').style.display = 'block';
 
   // ── Подгоняем границы карты под весь трек ──
@@ -2426,8 +2540,7 @@ function clearTrajectory(resetResult = true) {
   saveAll(trajectories);
   document.getElementById('export-row').classList.remove('show');
   if (resetResult) {
-    document.getElementById('res-lat').textContent = '—';
-    document.getElementById('res-lon').textContent = '—';
+    document.getElementById('res-coords').textContent = '—';
     document.getElementById('result-section').style.display = 'none';
   }
   document.getElementById('legend').classList.remove('show');
